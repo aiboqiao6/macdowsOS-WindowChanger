@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32"><Configuration>Debug</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32"><Configuration>Release</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <!-- VS applies this before loading project items, including imported items. -->
+    <ReplaceWildcardsInProjectItems>true</ReplaceWildcardsInProjectItems>
+    <Keyword>MakeFileProj</Keyword>
+    <ProjectGuid>{36EDB365-03FE-4221-AE42-A1E2CD9A3ED1}</ProjectGuid>
+    <ProjectName>macdowsOS WindowChanger</ProjectName>
+    <RootNamespace>macdowsOSWindowChanger</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <StylerRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\..'))\</StylerRoot>
+    <StylerSource>$(StylerRoot)demos\window-styler\</StylerSource>
+    <StylerBuild>$(StylerSource)out\vs-$(Platform)\</StylerBuild>
+    <OutDir>$(StylerBuild)$(Configuration)\</OutDir>
+    <IntDir>$(StylerRoot)out\msbuild\$(Platform)\$(Configuration)\</IntDir>
+    <BuildScript>powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(StylerRoot)build.ps1&quot; -Architecture $(Platform) -Configuration $(Configuration)</BuildScript>
+    <NMakeBuildCommandLine>$(BuildScript)</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>$(BuildScript) -Action Rebuild</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>$(BuildScript) -Action Clean</NMakeCleanCommandLine>
+    <NMakeOutput>$(OutDir)WindowStyler.exe</NMakeOutput>
+    <NMakePreprocessorDefinitions>UNICODE;_UNICODE;WIN32_LEAN_AND_MEAN;NOMINMAX;_WIN32_WINNT=0x0A00;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
+    <NMakeIncludeSearchPath>$(StylerSource);$(StylerSource)out\winui3-sdk;$(NMakeIncludeSearchPath)</NMakeIncludeSearchPath>
+    <AdditionalOptions>/std:c++20 /utf-8 $(AdditionalOptions)</AdditionalOptions>
+    <LocalDebuggerCommand>$(NMakeOutput)</LocalDebuggerCommand>
+    <LocalDebuggerWorkingDirectory>$(OutDir)</LocalDebuggerWorkingDirectory>
+    <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+  </PropertyGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\demos\window-styler\adapter-registry.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\adapter-tests.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\adaptive.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\applicationframe-inline.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\architecture.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\audit.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\chrome.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\controller.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\electron-inline.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\framework.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\hook.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\host-client.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\host.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\injector.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\inline.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\netui-inline.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\qt-inline-target.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\qt-inline.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\qt-target.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\session.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\target.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\tests.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\uwp-inset.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\views-inline.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\visual.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\winui3-demo.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\winui3-inline.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\wpf-inline.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\xaml-inline-target.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\xaml-inline.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\sdk\reject-probe-adapter.cpp" />
+    <ClCompile Include="..\..\demos\window-styler\sdk\sample-caption-adapter.cpp" />
+    <ClInclude Include="..\..\demos\window-styler\adapter-api.h" />
+    <ClInclude Include="..\..\demos\window-styler\adapter-registry.h" />
+    <ClInclude Include="..\..\demos\window-styler\adaptive.h" />
+    <ClInclude Include="..\..\demos\window-styler\architecture.h" />
+    <ClInclude Include="..\..\demos\window-styler\chrome.h" />
+    <ClInclude Include="..\..\demos\window-styler\embedded-frame.h" />
+    <ClInclude Include="..\..\demos\window-styler\framework.h" />
+    <ClInclude Include="..\..\demos\window-styler\host-client.h" />
+    <ClInclude Include="..\..\demos\window-styler\inline.h" />
+    <ClInclude Include="..\..\demos\window-styler\module-capabilities.h" />
+    <ClInclude Include="..\..\demos\window-styler\native-style-view.h" />
+    <ClInclude Include="..\..\demos\window-styler\nonclient-frame.h" />
+    <ClInclude Include="..\..\demos\window-styler\pe-identity.h" />
+    <ClInclude Include="..\..\demos\window-styler\protocol.h" />
+    <ClInclude Include="..\..\demos\window-styler\session.h" />
+    <ClInclude Include="..\..\demos\window-styler\views-layout.h" />
+    <ClInclude Include="..\..\demos\window-styler\views-profiles.h" />
+    <ClInclude Include="..\..\demos\window-styler\visual.h" />
+    <ClInclude Include="..\..\demos\window-styler\xaml-abi.h" />
+    <ClInclude Include="..\..\demos\window-styler\xaml-roots.h" />
+    <None Include="..\..\demos\window-styler\admin.manifest" />
+    <None Include="..\..\demos\window-styler\app.manifest" />
+    <None Include="..\..\demos\window-styler\build.ps1" />
+    <None Include="..\..\demos\window-styler\CMakeLists.txt" />
+    <None Include="..\..\demos\window-styler\development-tools.ps1" />
+    <None Include="..\..\demos\window-styler\electron-layout.js" />
+    <None Include="..\..\demos\window-styler\inspect-live.ps1" />
+    <None Include="..\..\demos\window-styler\package-winui3-demo.ps1" />
+    <None Include="..\..\demos\window-styler\package.ps1" />
+    <None Include="..\..\demos\window-styler\prepare-winui3-sdk.ps1" />
+    <None Include="..\..\demos\window-styler\qt-inline-target.qml" />
+    <None Include="..\..\demos\window-styler\screenshot-all.ps1" />
+    <None Include="..\..\demos\window-styler\screenshot-check.ps1" />
+    <None Include="..\..\demos\window-styler\test-controller-direct.ps1" />
+    <None Include="..\..\demos\window-styler\test-controller-v2.ps1" />
+    <None Include="..\..\demos\window-styler\test-controller.ps1" />
+    <None Include="..\..\demos\window-styler\test-embedded-views.ps1" />
+    <None Include="..\..\demos\window-styler\test-live-input.ps1" />
+    <None Include="..\..\demos\window-styler\test-netui-leases.ps1" />
+    <None Include="..\..\demos\window-styler\test-taskmanager-views.ps1" />
+    <None Include="..\..\demos\window-styler\test-views-inline.ps1" />
+    <None Include="..\..\demos\window-styler\test-views-modes.ps1" />
+    <None Include="..\..\demos\window-styler\test-winui3-inline.ps1" />
+    <None Include="..\..\demos\window-styler\wpf-inline-target.cs" />
+    <None Include="..\..\demos\window-styler\wpf-inline.cs" />
+    <None Include="..\..\demos\window-styler\xaml-inline.def" />
+    <None Include="..\..\build.ps1" />
+    <None Include="..\..\scripts\cleanup-code.ps1" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
