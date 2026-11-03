@@ -1,0 +1,46 @@
+name: Windows build and contracts
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build both architectures and configurations
+        shell: pwsh
+        run: |
+          foreach ($arch in @('x64','Win32')) {
+            foreach ($config in @('Release','Debug')) {
+              ./build.ps1 -Architecture $arch -Configuration $config
+              if ($LASTEXITCODE -ne 0) { throw "Build failed: $arch $config" }
+            }
+          }
+      - name: Run deterministic contracts
+        shell: pwsh
+        run: |
+          . ./demos/window-styler/development-tools.ps1
+          $cmakeTool=Get-DevelopmentTool cmake
+          $ctestTool=Join-Path (Split-Path $cmakeTool) ctest.exe
+          foreach ($arch in @('x64','Win32')) {
+            foreach ($config in @('Release','Debug')) {
+              & $ctestTool --test-dir "demos/window-styler/out/vs-$arch" -C $config --output-on-failure -R '^(controller_preferences_and_retry|original_framework_registry|strict_direct_policy|target_local_thread_bootstrap)$'
+              if ($LASTEXITCODE -ne 0) { throw "Contracts failed: $arch $config" }
+            }
+          }
+      - name: Package x64 controller and x86 helper
+        shell: pwsh
+        run: ./demos/window-styler/package-original-frameworks.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WindowChanger-v31
+          path: demos/window-styler/out/WindowChanger-v31.zip
+          if-no-files-found: error

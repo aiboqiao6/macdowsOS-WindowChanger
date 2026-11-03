@@ -1,0 +1,8 @@
+/out/
+/wpf/obj/
+/wpf/bin/
+/wpf-adapter/obj/
+/wpf-adapter/bin/
+/wpf-target-core/obj/
+/wpf-target-core/bin/
+__pycache__/

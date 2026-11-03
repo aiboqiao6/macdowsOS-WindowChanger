@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup><TargetFramework>net8.0-windows</TargetFramework><UseWPF>true</UseWPF><EnableDefaultCompileItems>false</EnableDefaultCompileItems><Nullable>disable</Nullable><ImplicitUsings>disable</ImplicitUsings><EnableWindowsTargeting>true</EnableWindowsTargeting></PropertyGroup>
+ <ItemGroup><Compile Include="../wpf-inline.cs" Link="Entry.cs" /></ItemGroup>
+</Project>
