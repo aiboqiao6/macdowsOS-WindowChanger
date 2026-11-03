@@ -191,9 +191,7 @@
     <None Include="..\..\demos\window-styler\images\windowchanger-controller-v31.png" />
     <None Include="..\..\demos\window-styler\images\README.md" />
     <None Include="..\..\demos\window-styler\research\frameworks-v30.md" />
-    <None Include="..\..\demos\window-styler\images\txgui-left-v30.png" />
     <None Include="..\..\demos\window-styler\research\frameworks-v29.md" />
-    <None Include="..\..\demos\window-styler\images\txgui-d2d-v26.png" />
     <None Include="..\..\demos\window-styler\research\framework-probe\mfc-paint.cpp" />
     <None Include="..\..\demos\window-styler\research\framework-probe\mfc-paint-host.cpp" />
     <None Include="..\..\demos\window-styler\research\framework-probe\office.cpp" />
@@ -218,9 +216,6 @@
     <None Include="..\..\demos\window-styler\research\frameworks-v23.md" />
     <None Include="..\..\demos\window-styler\research\frameworks-v24.md" />
     <None Include="..\..\demos\window-styler\research\frameworks-v25.md" />
-    <None Include="..\..\demos\window-styler\images\office-netui-v19.png" />
-    <None Include="..\..\demos\window-styler\images\office-netui-v18.png" />
-    <None Include="..\..\demos\window-styler\images\mfc-bcg-v16.png" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

@@ -468,13 +468,7 @@
     <None Include="..\..\demos\window-styler\research\frameworks-v30.md">
       <Filter>框架研究</Filter>
     </None>
-    <None Include="..\..\demos\window-styler\images\txgui-left-v30.png">
-      <Filter>框架研究</Filter>
-    </None>
     <None Include="..\..\demos\window-styler\research\frameworks-v29.md">
-      <Filter>框架研究</Filter>
-    </None>
-    <None Include="..\..\demos\window-styler\images\txgui-d2d-v26.png">
       <Filter>框架研究</Filter>
     </None>
     <None Include="..\..\demos\window-styler\research\framework-probe\mfc-paint.cpp">
@@ -547,15 +541,6 @@
       <Filter>框架研究</Filter>
     </None>
     <None Include="..\..\demos\window-styler\research\frameworks-v25.md">
-      <Filter>框架研究</Filter>
-    </None>
-    <None Include="..\..\demos\window-styler\images\office-netui-v19.png">
-      <Filter>框架研究</Filter>
-    </None>
-    <None Include="..\..\demos\window-styler\images\office-netui-v18.png">
-      <Filter>框架研究</Filter>
-    </None>
-    <None Include="..\..\demos\window-styler\images\mfc-bcg-v16.png">
       <Filter>框架研究</Filter>
     </None>
   </ItemGroup>
