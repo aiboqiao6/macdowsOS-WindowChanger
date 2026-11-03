@@ -3,7 +3,7 @@ $ErrorActionPreference='Stop'
 if (-not $Directory) { $Directory=Join-Path $PSScriptRoot '..\out\vs-x64\Release' }
 if (-not $VerifierDirectory) { $VerifierDirectory=$Directory }
 if (-not $FixtureDirectory) { $FixtureDirectory=$VerifierDirectory }
-if (-not $OutputDirectory) { $OutputDirectory=Join-Path $PSScriptRoot '..\out\live-v31\controller-Release' }
+if (-not $OutputDirectory) { $OutputDirectory=Join-Path $PSScriptRoot '..\out\live-v32\controller-Release' }
 $principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run the isolated controller verifier as administrator.' }
 [void](New-Item -ItemType Directory -Force -Path $OutputDirectory)

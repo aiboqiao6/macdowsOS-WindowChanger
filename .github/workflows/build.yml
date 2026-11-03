@@ -41,6 +41,6 @@ jobs:
         run: ./demos/window-styler/package-original-frameworks.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: WindowChanger-v31
-          path: demos/window-styler/out/WindowChanger-v31.zip
+          name: WindowChanger-v32
+          path: demos/window-styler/out/WindowChanger-v32.zip
           if-no-files-found: error

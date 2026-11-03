@@ -2,7 +2,7 @@
 
 当前 MFC/BCG、Office NetUI、TXGui 的已验证有限 ABI profile 已加入主控制器和完整包。TXGui 原树左侧三灯、原 D2D/输入、持续附加及异常恢复已整合；使用和边界见[原树三灯说明](original-frameworks.md)、[v30 验证](research/frameworks-v30.md)。下文 v13…v29 保留为历史过程；未知版本/布局的兼容范围不扩大。
 
-v31 已移除实验/截图审计 UI，增加托盘驻留、单实例、登录后台自启、自动接管持久化与退避；[运行说明](release-v31.md) · [完整验证](verification-v31.md)。使用 `out/WindowChanger-v31.zip`，保留 `x86` 目录。当前源码仓库为 [macdowsOS-WindowChanger](https://github.com/aiboqiao6/macdowsOS-WindowChanger)。
+v32 默认自动接管所有受支持窗口，不设软件黑白名单或已测试软件清单；保留 v31 的精简 UI、托盘驻留、单实例、登录后台自启、自动接管持久化与退避。手动还原会暂停全局自动接管，恢复后重新对所有支持窗口尝试。实际 ABI、原布局及所有权检查保持，不强制修改未知版本。[运行说明](release-v32.md) · [本轮验证](verification-v32.md) · [v31 验证](verification-v31.md)。使用 `out/WindowChanger-v32.zip`，保留 `x86` 目录。当前源码仓库为 [macdowsOS-WindowChanger](https://github.com/aiboqiao6/macdowsOS-WindowChanger)。
 
 通用 Windows 进程内窗口注入 demo。默认请求管理员权限，统一处理 x64/x86、目标 GUI 线程、探测、附加确认、输入和撤销。后端按框架能力和原控件树选择，不按应用名称、路径或产品版本分派。
 

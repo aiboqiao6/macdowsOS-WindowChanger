@@ -18,6 +18,7 @@ constexpr int IdList = 100, IdRefresh = 102, IdApply = 103, IdRestore = 104, IdR
               IdStartup = 109;
 constexpr int IdShow = 120, IdExit = 123;
 constexpr UINT TrayMessage = WM_APP + 21;
+constexpr UINT DiscoverMessage = WM_APP + 22;
 constexpr wchar_t PrimaryProperty[] = L"Macdows.WindowChanger.Primary.v3";
 struct App {
     HWND window{}, list{}, automatic{}, startup{};
@@ -155,6 +156,8 @@ void SetAutomatic(bool enabled, bool save = true) {
                                            : L"自动接管已暂停，现有外观保留";
     }
     UpdateState();
+    if (enabled)
+        PostMessageW(app.window, DiscoverMessage, 0, 0);
 }
 void ToggleStartup() {
     auto current = styler::settings::QueryStartup(app.scope, app.executable);
@@ -272,17 +275,20 @@ void ManageWindows() {
     auto candidates = styler::EnumerateInline();
     std::vector<std::pair<uintptr_t, uint32_t>> alive;
     unsigned operations{}, added{};
+    bool more{};
     for (auto &candidate : candidates) {
         if (app.scopePid && candidate.pid != app.scopePid)
             continue;
         alive.emplace_back(reinterpret_cast<uintptr_t>(candidate.window), candidate.pid);
-        if (!candidate.supported || app.session->Owns(candidate.window))
+        if (!styler::AutomaticCandidate(candidate.supported, app.session->Owns(candidate.window)))
             continue;
         auto key = reinterpret_cast<uintptr_t>(candidate.window);
         if (!app.queue.Ready(key, candidate.pid, now, IsWindowVisible(candidate.window) && !IsIconic(candidate.window)))
             continue;
-        if (operations >= 2)
+        if (operations >= 2) {
+            more = true;
             continue;
+        }
         ++operations;
         ++app.autoAttempts;
         auto result = app.session->Apply(candidate.window);
@@ -303,6 +309,9 @@ void ManageWindows() {
         Refresh();
     else
         UpdateState();
+    // Yield between bounded batches, but do not wait for another timer tick.
+    if (more)
+        PostMessageW(app.window, DiscoverMessage, 0, 0);
 }
 void Paint() {
     PAINTSTRUCT paint{};
@@ -431,9 +440,9 @@ LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             app.buttons[i] =
                 CreateWindowExW(0, L"BUTTON", labels[i], WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 0, 0,
                                 window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(ids[i])), nullptr, nullptr);
-        app.automatic =
-            CreateWindowExW(0, L"BUTTON", L"自动接管", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0,
-                            window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IdAuto)), nullptr, nullptr);
+        app.automatic = CreateWindowExW(0, L"BUTTON", L"自动接管所有支持窗口",
+                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0, window,
+                                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IdAuto)), nullptr, nullptr);
         app.startup =
             CreateWindowExW(0, L"BUTTON", L"开机自启", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0,
                             window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IdStartup)), nullptr, nullptr);
@@ -454,6 +463,7 @@ LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         SetPropW(window, PrimaryProperty, reinterpret_cast<HANDLE>(1));
         SetPropW(window, app.instanceProperty.c_str(), reinterpret_cast<HANDLE>(1));
         SetTimer(window, 4, 1000, nullptr);
+        PostMessageW(window, DiscoverMessage, 0, 0);
         return 0;
     }
     case WM_COMMAND: {
@@ -495,8 +505,8 @@ LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM wp, LPARAM lp) {
                 Refresh();
             }
             if (command == IdRestore) {
-                app.queue.Exclude(key, candidate.pid);
-                app.status = app.session->Restore(candidate.window).message;
+                SetAutomatic(false);
+                app.status = L"已暂停自动接管；" + app.session->Restore(candidate.window).message;
                 Refresh();
             }
         }
@@ -552,6 +562,9 @@ LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_GETMINMAXINFO:
         reinterpret_cast<MINMAXINFO *>(lp)->ptMinTrackSize = {app.Scale(740), app.Scale(440)};
         return 0;
+    case DiscoverMessage:
+        ManageWindows();
+        return 0;
     case WM_TIMER:
         if (wp == 4)
             ManageWindows();
@@ -596,6 +609,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             break;
     }
     LocalFree(arguments);
+    // PID scoping is permitted only in isolated tests, not production selection.
+    if (app.scopePid && app.scope.testId.empty())
+        valid = false;
     if (!valid)
         return ERROR_INVALID_PARAMETER;
     auto mutexName = L"Local\\" + app.scope.TaskName() + L"-Controller";

@@ -5,38 +5,42 @@
 #include <vector>
 
 namespace styler {
+// Capability alone selects candidates; there is no product name or test-record list.
+inline bool AutomaticCandidate(bool supported, bool alreadyOwned) {
+    return supported && !alreadyOwned;
+}
 // Discovery scheduling only: no layout/pixel following. All times are injected
-// monotonic milliseconds so initialization, retries and manual exclusions test
+// monotonic milliseconds so retries and visibility transitions can be tested
 // without sleeps or touching unrelated application windows.
 class AutoManageQueue {
     struct State {
         uint32_t pid{};
-        uint64_t first{}, next{};
+        uint64_t next{};
         unsigned failures{};
-        bool excluded{};
+        bool visible{};
     };
     std::map<uintptr_t, State> states_;
 
   public:
     bool Ready(uintptr_t window, uint32_t pid, uint64_t now, bool visible) {
-        auto [it, added] = states_.try_emplace(window, State{pid, now, now + 500});
+        auto it = states_.try_emplace(window, State{pid, now}).first;
         auto &state = it->second;
         if (state.pid != pid)
-            state = {pid, now, now + 500};
+            state = {pid, now};
         if (!visible) {
-            state.first = now;
-            state.next = std::max(state.next, now + 500);
+            state.visible = false;
             return false;
         }
-        return !added && !state.excluded && now >= state.next;
+        if (!state.visible) {
+            state.visible = true;
+            state.next = now;
+        }
+        return now >= state.next;
     }
     void Failed(uintptr_t window, uint64_t now) {
         auto &state = states_.at(window);
         state.next = now + std::min<uint64_t>(60000, 5000ull << std::min(state.failures, 4u));
         ++state.failures;
-    }
-    void Exclude(uintptr_t window, uint32_t pid) {
-        states_[window] = {pid, 0, 0, 0, true};
     }
     void Allow(uintptr_t window) {
         states_.erase(window);

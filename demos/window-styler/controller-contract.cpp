@@ -10,8 +10,11 @@ int wmain() {
         std::cout << (ok ? "PASS " : "FAIL ") << name << '\n';
     };
     styler::AutoManageQueue queue;
-    check(!queue.Ready(1, 10, 1000, true), "new windows wait for framework initialization");
-    check(!queue.Ready(1, 10, 1499, true), "initialization wait is not shortened");
+    check(queue.Ready(1, 10, 1000, true), "newly supported windows are immediately eligible");
+    check(queue.Ready(99, 990, 1000, true), "unseen products need no tested-product record");
+    check(styler::AutomaticCandidate(true, false), "supported software needs no whitelist");
+    check(!styler::AutomaticCandidate(false, false) && !styler::AutomaticCandidate(true, true),
+          "unsupported and owned windows are not redundantly injected");
     check(queue.Ready(1, 10, 1500, true), "stable supported window becomes eligible");
     queue.Failed(1, 1500);
     check(!queue.Ready(1, 10, 6499, true) && queue.Ready(1, 10, 6500, true),
@@ -24,18 +27,14 @@ int wmain() {
     queue.Failed(1, 76500);
     check(!queue.Ready(1, 10, 136499, true) && queue.Ready(1, 10, 136500, true),
           "retry delay is bounded at one minute");
-    queue.Exclude(1, 10);
-    check(!queue.Ready(1, 10, 999999, true), "manual restore is not immediately undone by auto management");
-    check(!queue.Ready(1, 11, 1000000, true) && queue.Ready(1, 11, 1000500, true),
-          "reused HWND with a new PID does not inherit exclusions");
+    check(queue.Ready(1, 10, 999999, true), "failed windows are never permanently deny-listed");
+    check(queue.Ready(1, 11, 1000000, true), "a reused HWND with a new PID is immediately eligible");
     check(!queue.Ready(2, 20, 2000, false) && !queue.Ready(2, 20, 9000, false),
           "minimized or hidden windows remain deferred");
-    check(!queue.Ready(2, 20, 9499, true) && queue.Ready(2, 20, 9500, true),
-          "restored windows get their initialization grace period");
-    queue.Exclude(2, 20);
+    check(queue.Ready(2, 20, 9001, true), "restored supported windows have no artificial grace period");
+    queue.Failed(2, 9500);
     queue.Allow(2);
-    check(!queue.Ready(2, 20, 10000, true) && queue.Ready(2, 20, 10500, true),
-          "explicit apply removes a manual exclusion safely");
+    check(queue.Ready(2, 20, 10000, true), "explicit retry has no per-window exclusion");
     queue.Prune({{2, 20}});
     check(queue.Size() == 1, "destroyed windows and reused PIDs are pruned");
     queue.Reset();

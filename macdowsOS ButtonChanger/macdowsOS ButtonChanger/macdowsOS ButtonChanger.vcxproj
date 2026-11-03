@@ -186,6 +186,9 @@
     <None Include="..\..\demos\window-styler\controller-framework-tests.cpp" />
     <None Include="..\..\demos\window-styler\release-v31.md" />
     <None Include="..\..\demos\window-styler\verification-v31.md" />
+    <None Include="..\..\demos\window-styler\release-v32.md" />
+    <None Include="..\..\demos\window-styler\verification-v32.md" />
+    <None Include="..\..\demos\window-styler\research\verify-auto-all.ps1" />
     <None Include="..\..\demos\window-styler\research\verify-controller.ps1" />
     <None Include="..\..\demos\window-styler\research\verify-controller-matrix.ps1" />
     <None Include="..\..\demos\window-styler\images\windowchanger-controller-v31.png" />

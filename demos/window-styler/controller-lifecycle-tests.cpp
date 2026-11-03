@@ -112,7 +112,9 @@ std::vector<HWND> OwnedWindows(DWORD pid, const wchar_t *property) {
             auto &f = *reinterpret_cast<Find *>(data);
             DWORD pid{};
             GetWindowThreadProcessId(window, &pid);
-            if (pid == f.pid && GetPropW(window, f.property))
+            if (pid == f.pid && (f.property ? GetPropW(window, f.property) != nullptr
+                                            : (GetAncestor(window, GA_ROOT) == window &&
+                                               (GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION))))
                 f.result.push_back(window);
             return TRUE;
         },
@@ -161,14 +163,21 @@ int wmain(int argc, wchar_t **argv) {
     };
     std::vector<HWND> targets;
     auto args = L"--test-mode " + scope.testId;
-    bool setup = check(fixture.Start(fixtureExe, L"--pair"), "start only an owned pair of native fixture windows");
+    bool setup =
+        check(fixture.Start(fixtureExe, L"--pair --unseen"), "start only an owned pair of native fixture windows");
     if (setup)
         setup = check(Until([&] {
-                          targets = OwnedWindows(fixture.info.dwProcessId, styler::SampleProperty);
+                          targets = OwnedWindows(fixture.info.dwProcessId, nullptr);
                           return targets.size() == 2;
                       }),
                       "owned native fixtures expose both HWNDs");
     if (setup) {
+        check(!GetPropW(targets[0], styler::SampleProperty) && !GetPropW(targets[1], styler::SampleProperty),
+              "unseen automatic targets have no special sample marker");
+        wchar_t unknownClass[128]{};
+        GetClassNameW(targets[0], unknownClass, 128);
+        check(!wcsncmp(unknownClass, L"UnverifiedNative-", 17),
+              "arbitrary never-tested window classes are selected by capability");
         args += L" --scope-pid " + std::to_wstring(fixture.info.dwProcessId);
         ShowWindow(targets[1], SW_MINIMIZE);
         Pump(200);
@@ -254,14 +263,15 @@ int wmain(int argc, wchar_t **argv) {
               "manual selected restore detaches one owned window");
         auto detached = !Attached(targets[0]) ? targets[0] : targets[1];
         Pump(1700);
-        check(!Attached(detached), "automatic discovery respects manual per-window exclusion");
+        check(!Attached(detached) && Send(window, Metrics(), 6) == 0,
+              "manual restore pauses globally instead of adding a deny-list entry");
         Send(window, WM_COMMAND, 105);
         check(Until([&] { return !Attached(targets[0]) && !Attached(targets[1]); }) && Send(window, Metrics(), 6) == 0,
               "restore all pauses automatic mode and restores both leases");
         check(!styler::settings::LoadAutoManage(scope), "paused automatic setting is persisted");
         Send(window, WM_COMMAND, 108);
         check(Until([&] { return Attached(targets[0]) && Attached(targets[1]); }),
-              "resuming automatic mode clears exclusions and reapplies supported windows");
+              "resuming automatic mode reapplies all supported windows without a software list");
         Send(window, WM_COMMAND, 109);
         auto startup = styler::settings::QueryStartup(scope, exe);
         check(SUCCEEDED(startup.result) && startup.exists && startup.enabled && startup.owned && startup.currentPath &&
@@ -404,7 +414,7 @@ int wmain(int argc, wchar_t **argv) {
     Exit(second);
     Exit(ui);
     if (fixture.info.hProcess && !fixture.Done()) {
-        for (auto w : OwnedWindows(fixture.info.dwProcessId, styler::SampleProperty))
+        for (auto w : OwnedWindows(fixture.info.dwProcessId, nullptr))
             PostMessageW(w, WM_CLOSE, 0, 0);
         if (!Until([&] { return fixture.Done(); }, 4000)) {
             TerminateProcess(fixture.info.hProcess, 0x54455354);

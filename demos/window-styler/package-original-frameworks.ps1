@@ -1,9 +1,13 @@
 param(
     [ValidateSet('Debug','Release')][string]$Configuration='Release',
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+    [string]$X64BuildDirectory,
+    [string]$X86BuildDirectory
 )
 $ErrorActionPreference='Stop'
-if (-not $OutputDirectory) { $OutputDirectory=Join-Path $PSScriptRoot 'out\WindowChanger-v31' }
+if (-not $OutputDirectory) { $OutputDirectory=Join-Path $PSScriptRoot 'out\WindowChanger-v32' }
+if (-not $X64BuildDirectory) { $X64BuildDirectory=Join-Path $PSScriptRoot 'out\vs-x64' }
+if (-not $X86BuildDirectory) { $X86BuildDirectory=Join-Path $PSScriptRoot 'out\vs-Win32' }
 $OutputDirectory=[IO.Path]::GetFullPath($OutputDirectory)
 [void](New-Item -ItemType Directory -Force -Path $OutputDirectory)
 function CopyRuntime([string]$Source,[string]$Destination) {
@@ -13,7 +17,7 @@ function CopyRuntime([string]$Source,[string]$Destination) {
     Copy-Item -LiteralPath $Source -Destination $target -Force
 }
 foreach ($architecture in @('x64','Win32')) {
-    $build=Join-Path $PSScriptRoot "out\vs-$architecture"
+    $build=if ($architecture -eq 'x64') { $X64BuildDirectory } else { $X86BuildDirectory }
     $runtime=Join-Path $build $Configuration
     $destination=if ($architecture -eq 'x64') { $OutputDirectory } else { Join-Path $OutputDirectory 'x86' }
     [void](New-Item -ItemType Directory -Force -Path $destination)
@@ -38,7 +42,7 @@ foreach ($architecture in @('x64','Win32')) {
     if (-not $crt) { throw "Missing app-local VC++ redistributable for $architecture." }
     Get-ChildItem -LiteralPath $crt -Filter '*.dll' -File | ForEach-Object { CopyRuntime $_.FullName $destination }
 }
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release-v31.md') -Destination (Join-Path $OutputDirectory 'README.md') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release-v32.md') -Destination (Join-Path $OutputDirectory 'README.md') -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'original-frameworks.md') -Destination $OutputDirectory -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\..\LICENSE.txt') -Destination $OutputDirectory -Force
 [void](New-Item -ItemType Directory -Force -Path (Join-Path $OutputDirectory 'third_party'))

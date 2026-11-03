@@ -2,7 +2,7 @@
 
 仓库：[aiboqiao6/macdowsOS-WindowChanger](https://github.com/aiboqiao6/macdowsOS-WindowChanger)，默认分支 `master`。
 
-v31 已精简主界面，增加托盘驻留、单实例、当前用户登录自启和自动接管持久化。使用方式见[运行说明](demos/window-styler/release-v31.md)。新版完整运行包为 `demos/window-styler/out/WindowChanger-v31.zip`；包含 x64 主程序、x86 辅助程序和匹配的 VC++ 可再发行运行库。
+v32 默认自动接管所有受支持窗口：不设软件黑白名单，不按软件是否单独测试过来筛选，检测到支持即尝试注入。保留精简界面、托盘驻留、单实例、当前用户登录自启和自动接管持久化。使用方式见[运行说明](demos/window-styler/release-v32.md)。新版完整运行包为 `demos/window-styler/out/WindowChanger-v32.zip`；包含 x64 主程序、x86 辅助程序和匹配的 VC++ 可再发行运行库。
 
 使用 Visual Studio 2022 打开根目录的 `macdowsOS WindowChanger.sln`，选择 `Debug/Release` 和 `x64/x86`，按 Ctrl+Shift+B 编译，F5 启动 `WindowStyler.exe`。程序要求管理员权限，调试时请以管理员身份启动 VS。
 

@@ -3,9 +3,11 @@
 #include <shellapi.h>
 #include <algorithm>
 #include <vector>
+#include <string>
 
 namespace {
 int windows = 0;
+bool unseenNative{};
 constexpr wchar_t KindProperty[] = L"Macdows.WindowStyler.Sample.Kind";
 HFONT CreateBodyFont(UINT dpi) {
     return CreateFontW(-MulDiv(15, dpi, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
@@ -45,7 +47,8 @@ LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM wParam, LPARAM lPar
         break;
     case WM_CREATE: {
         ++windows;
-        SetPropW(window, styler::SampleProperty, reinterpret_cast<HANDLE>(1));
+        if (!unseenNative)
+            SetPropW(window, styler::SampleProperty, reinterpret_cast<HANDLE>(1));
         if (GetWindowLongPtrW(window, GWL_STYLE) & WS_VSCROLL) {
             SCROLLINFO scroll{sizeof(scroll), SIF_RANGE | SIF_PAGE | SIF_POS, 0, 100, 10, 30};
             SetScrollInfo(window, SB_VERT, &scroll, TRUE);
@@ -120,7 +123,8 @@ LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM wParam, LPARAM lPar
         SelectObject(dc, old);
         EndPaint(window, &paint);
         auto count = reinterpret_cast<UINT_PTR>(GetPropW(window, styler::SamplePaintProperty));
-        SetPropW(window, styler::SamplePaintProperty, reinterpret_cast<HANDLE>(count + 1));
+        if (!unseenNative)
+            SetPropW(window, styler::SamplePaintProperty, reinterpret_cast<HANDLE>(count + 1));
         return 0;
     }
     case WM_DESTROY:
@@ -143,6 +147,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     cls.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     const wchar_t *classes[] = {styler::TargetClass, styler::TargetClass, L"Qt6QWindowIcon.Sample",
                                 L"Chrome_WidgetWin_1.Sample", L"Macdows.CustomClient.Sample"};
+    unseenNative = wcsstr(command, L"--unseen") != nullptr;
+    std::wstring unseenClass =
+        L"UnverifiedNative-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64());
+    if (unseenNative)
+        classes[0] = classes[1] = unseenClass.c_str();
     for (const auto *name : classes) {
         cls.lpszClassName = name;
         RegisterClassExW(&cls);
@@ -192,6 +201,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
                                       reinterpret_cast<void *>(static_cast<UINT_PTR>(i)));
         if (!window)
             return 1;
+        if (unseenNative) {
+            auto title =
+                L"Unverified application " + std::to_wstring(GetCurrentProcessId()) + L" / " + std::to_wstring(i);
+            SetWindowTextW(window, title.c_str());
+        }
         ShowWindow(window, show);
         UpdateWindow(window);
     }

@@ -453,6 +453,15 @@
     <None Include="..\..\demos\window-styler\verification-v31.md">
       <Filter>框架研究</Filter>
     </None>
+    <None Include="..\..\demos\window-styler\release-v32.md">
+      <Filter>框架研究</Filter>
+    </None>
+    <None Include="..\..\demos\window-styler\verification-v32.md">
+      <Filter>框架研究</Filter>
+    </None>
+    <None Include="..\..\demos\window-styler\research\verify-auto-all.ps1">
+      <Filter>框架研究</Filter>
+    </None>
     <None Include="..\..\demos\window-styler\research\verify-controller.ps1">
       <Filter>框架研究</Filter>
     </None>
