@@ -23,7 +23,8 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     target_link_libraries(MacdowsMfcCaption PRIVATE comctl32 gdi32)
     original_framework_module(MacdowsOfficeCaption "${original_framework_dir}/office.cpp"
         "${original_framework_dir}/office.cpp" "${original_framework_dir}/office-layout.h"
-        "${original_framework_dir}/office-lease.h" "${CMAKE_CURRENT_SOURCE_DIR}/native-style-view.h"
+        "${original_framework_dir}/office-lease.h" "${original_framework_dir}/office-edit-title.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/native-style-view.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/caption-colors.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/nonclient-frame.h" "${CMAKE_CURRENT_SOURCE_DIR}/adapter-api.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/pe-identity.h")

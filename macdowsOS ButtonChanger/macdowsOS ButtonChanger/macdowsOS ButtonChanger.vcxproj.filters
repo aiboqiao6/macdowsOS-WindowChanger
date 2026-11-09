@@ -465,6 +465,12 @@
     <None Include="..\..\demos\window-styler\verification-v33.md">
       <Filter>框架研究</Filter>
     </None>
+    <None Include="..\..\demos\window-styler\release-v34.md">
+      <Filter>框架研究</Filter>
+    </None>
+    <None Include="..\..\demos\window-styler\verification-v34.md">
+      <Filter>框架研究</Filter>
+    </None>
     <ClInclude Include="..\..\demos\window-styler\caption-colors.h">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -511,6 +517,12 @@
       <Filter>框架研究</Filter>
     </None>
     <None Include="..\..\demos\window-styler\research\framework-probe\office-layout.h">
+      <Filter>框架研究</Filter>
+    </None>
+    <None Include="..\..\demos\window-styler\research\framework-probe\office-edit-layout.h">
+      <Filter>框架研究</Filter>
+    </None>
+    <None Include="..\..\demos\window-styler\research\framework-probe\office-edit-title.h">
       <Filter>框架研究</Filter>
     </None>
     <None Include="..\..\demos\window-styler\research\framework-probe\office-layout-host.cpp">

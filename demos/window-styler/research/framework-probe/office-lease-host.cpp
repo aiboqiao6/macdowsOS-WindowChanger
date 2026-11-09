@@ -76,6 +76,16 @@ bool NoCapture(HWND target) {
     GUITHREADINFO info{sizeof(info)};
     return GetGUIThreadInfo(GetWindowThreadProcessId(target, nullptr), &info) && !info.hwndCapture;
 }
+bool NativeCaptionDisabled(HWND target) {
+    TITLEBARINFOEX info{sizeof(info)};
+    if (Send(target, WM_GETTITLEBARINFOEX, 0, reinterpret_cast<LPARAM>(&info)) == -1)
+        return false;
+    for (auto i : {2, 3, 5})
+        if ((info.rgstate[i] & (STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_UNAVAILABLE)) !=
+                (STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_UNAVAILABLE) || !IsRectEmpty(&info.rgrect[i]))
+            return false;
+    return true;
+}
 bool ReportContains(HWND target, const char *text) {
     DWORD pid{};
     GetWindowThreadProcessId(target, &pid);
@@ -142,8 +152,15 @@ int wmain(int argc, wchar_t **argv) {
     {
         styler::Session session(owner);
         for (unsigned cycle = 0; cycle < 2; ++cycle) {
-            if (!check(session.Apply(target, static_cast<styler::Adapter>(272)).ok,
-                       "persistent attach returns success"))
+            auto applied = session.Apply(target, static_cast<styler::Adapter>(272));
+            if (!applied.ok) {
+                auto length = WideCharToMultiByte(CP_UTF8, 0, applied.message.c_str(), -1, nullptr, 0, nullptr, nullptr);
+                std::string message(length, '\0');
+                if (length)
+                    WideCharToMultiByte(CP_UTF8, 0, applied.message.c_str(), -1, message.data(), length, nullptr, nullptr);
+                std::cerr << message.c_str() << std::endl;
+            }
+            if (!check(applied.ok, "persistent attach returns success"))
                 break;
             Pump(1200);
             check(session.Owns(target) && Send(target, styler::QueryMessage()) == styler::Acknowledged &&
@@ -152,6 +169,8 @@ int wmain(int argc, wchar_t **argv) {
             check(Send(target, Metrics(), 3, 0) == 7, "all three native circles remain painted after sustained attach");
             check(!(GetWindowLongPtrW(target, GWL_STYLE) & (WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)),
                   "all original DWM caption glyphs suppressed");
+            check(Send(target, Metrics(), 7) == 1, "all original framework buttons disabled with typed boolean values");
+            check(NativeCaptionDisabled(target), "native accessibility reports old caption buttons hidden and unavailable");
             RECT nowOuter{}, nowClient{};
             GetWindowRect(target, &nowOuter);
             GetClientRect(target, &nowClient);
@@ -188,6 +207,42 @@ int wmain(int argc, wchar_t **argv) {
             check(session.Restore(target).ok, "repeated detach is harmless");
             if (failures)
                 break;
+        }
+    }
+    if (!failures) {
+        styler::Session session(owner);
+        if (check(session.Apply(target, static_cast<styler::Adapter>(272)).ok, "attach before narrow-layout guard")) {
+            bool editor = Send(target, Metrics(), 8) == 1;
+            if (editor) {
+                auto minimum = Send(target, Metrics(), 9);
+                SetWindowPos(target, nullptr, 0, 0, static_cast<int>(minimum), outer.bottom - outer.top,
+                             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                Pump(350);
+                check(Send(target, Metrics(), 1) == 1 && Send(target, Metrics(), 7) == 1,
+                      "minimum editor title envelope keeps a healthy suppressed original group");
+                check(Send(target, Metrics(), 3, 4) == 7, "three native lights paint at minimum supported editor width");
+                SetWindowPos(target, nullptr, 0, 0, 800, outer.bottom - outer.top,
+                             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                Pump(350);
+                check(Detached(target), "narrow editor restores original layout before title content can clip");
+                RECT narrowBefore{}, narrowAfter{};
+                GetWindowRect(target, &narrowBefore);
+                auto narrowStyle = GetWindowLongPtrW(target, GWL_STYLE);
+                check(!session.Apply(target, static_cast<styler::Adapter>(272)).ok && Detached(target),
+                      "initial attach to a narrow editor rejects without an active lease");
+                check(ReportContains(target, "\"savedProperties\":0") &&
+                          ReportContains(target, "\"retainedNodes\":0"),
+                      "narrow initial rejection reaches no property write or node retention");
+                GetWindowRect(target, &narrowAfter);
+                check(EqualRect(&narrowBefore, &narrowAfter) && GetWindowLongPtrW(target, GWL_STYLE) == narrowStyle,
+                      "narrow initial rejection preserves geometry and caption capabilities");
+                SetWindowPos(target, nullptr, 0, 0, outer.right - outer.left, outer.bottom - outer.top,
+                             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                Pump(350);
+                check(session.Restore(target).ok && restored(), "narrow-layout guard restores caption properties and geometry");
+            } else {
+                check(session.Restore(target).ok && restored(), "start-page lease remains independent of editor width guard");
+            }
         }
     }
     if (!failures) {
@@ -240,6 +295,8 @@ int wmain(int argc, wchar_t **argv) {
             Send(target, WM_SETTINGCHANGE);
             check(Send(target, styler::QueryMessage()) == styler::Acknowledged && Send(target, Metrics(), 1) == 1,
                   "same-tree settings notification preserves original button suppression");
+            check(Send(target, Metrics(), 7) == 1, "theme and settings refresh preserve disabled original buttons");
+            check(NativeCaptionDisabled(target), "native caption accessibility stays suppressed after theme refresh");
             session.RestoreAll();
             check(Detached(target) && restored(), "explicit detach after theme refresh restores original state");
         }

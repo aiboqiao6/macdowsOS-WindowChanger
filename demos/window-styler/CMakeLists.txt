@@ -90,7 +90,25 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS applicationframe-
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS views-inline.cpp views-layout.h views-profiles.h)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS session.cpp session.h)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS winui3-inline.cpp)
-string(SHA256 revision "${hook_hash}${chrome_hash}${protocol_hash}${qt_hash}${abi_hash}${registry_hash}${registry_header_hash}${wpf_hash}${managed_hash}${xaml_hash}${xaml_roots_hash}${xaml_abi_hash}${electron_hash}${electron_js_hash}${pe_hash}${netui_hash}${capabilities_hash}${frame_hash}${style_view_hash}${applicationframe_hash}${uwp_inset_hash}${embedded_frame_hash}${minhook_hash}${views_hash}${views_layout_hash}${views_profiles_hash}${session_hash}${session_header_hash}${winui3_hash}")
+# The bootstrap resolves adapters beside its own mapped image. Include shipped
+# original-tree backends so a rebuilt package cannot reuse an older bootstrap
+# whose directory still contains the previous adapter registry.
+set(original_hash "${STYLER_ORIGINAL_FRAMEWORKS}")
+if(STYLER_ORIGINAL_FRAMEWORKS)
+    set(original_revision_sources original-framework-adapters.cmake)
+    foreach(name mfc-paint.cpp office.cpp office-layout.h office-lease.h office-edit-title.h
+                 txgui.cpp txgui-events.h txgui-caption.h txgui-tree-budget.h txgui-frame-layout.h
+                 txgui-order.h txgui-stack-order.h txgui-left-layout.h txgui-left-live.h txgui-left-lease.h
+                 txgui-live-state.h txgui-caption-pixels.h txgui-paint-observer.h txgui-d2d-filter.h)
+        list(APPEND original_revision_sources "research/framework-probe/${name}")
+    endforeach()
+    foreach(name IN LISTS original_revision_sources)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${name}")
+        file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/${name}" part)
+        string(APPEND original_hash "${part}")
+    endforeach()
+endif()
+string(SHA256 revision "${hook_hash}${chrome_hash}${protocol_hash}${qt_hash}${abi_hash}${registry_hash}${registry_header_hash}${wpf_hash}${managed_hash}${xaml_hash}${xaml_roots_hash}${xaml_abi_hash}${electron_hash}${electron_js_hash}${pe_hash}${netui_hash}${capabilities_hash}${frame_hash}${style_view_hash}${applicationframe_hash}${uwp_inset_hash}${embedded_frame_hash}${minhook_hash}${views_hash}${views_layout_hash}${views_profiles_hash}${session_hash}${session_header_hash}${winui3_hash}${original_hash}")
 string(SUBSTRING "${revision}" 0 12 revision)
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(hook_name "MacdowsStyleHook64-${revision}-$<LOWER_CASE:$<CONFIG>>")
@@ -356,7 +374,7 @@ if(TARGET MacdowsMfcCaption)
 endif()
 if(TARGET MacdowsOfficeCaption)
     string(APPEND adapter_ids ",272")
-    string(APPEND adapter_ini "[Adapter272]\nName=Office NetUI original start-page caption / guarded ABI\nFramework=office-netui\nChildClass=NetUIHWND\nRequiredModules=mso40uiwin32client.dll,mso98win32client.dll,mso.dll\nModuleCodeView=2D2645957EA843188AA1897691F9D8EE2\nFile=$<TARGET_FILE_NAME:MacdowsOfficeCaption>\n")
+    string(APPEND adapter_ini "[Adapter272]\nName=Office NetUI original title / guarded ABI and layout\nFramework=office-netui\nChildClass=NetUIHWND\nRequiredModules=mso40uiwin32client.dll,mso98win32client.dll,mso.dll\nModuleCodeView=2D2645957EA843188AA1897691F9D8EE2\nFile=$<TARGET_FILE_NAME:MacdowsOfficeCaption>\n")
 endif()
 if(TARGET MacdowsTxGuiCaption)
     string(APPEND adapter_ids ",279")

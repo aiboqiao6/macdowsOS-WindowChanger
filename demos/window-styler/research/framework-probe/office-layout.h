@@ -23,7 +23,22 @@ struct OfficeFrameScope {
             for (auto r : self->buttons)
                 if (PtInRect(&r, point))
                     return HTCLIENT;
+            auto hit = DefSubclassProc(w, m, wp, lp);
+            return hit == HTCLOSE || hit == HTMINBUTTON || hit == HTMAXBUTTON ? HTCAPTION : hit;
         }
+        if (m == WM_GETTITLEBARINFOEX) {
+            auto result = DefSubclassProc(w, m, wp, lp);
+            auto info = reinterpret_cast<TITLEBARINFOEX *>(lp);
+            if (info && info->cbSize == sizeof(TITLEBARINFOEX))
+                for (auto i : {2, 3, 5}) {
+                    info->rgstate[i] |= STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_UNAVAILABLE | STATE_SYSTEM_OFFSCREEN;
+                    SetRectEmpty(&info->rgrect[i]);
+                }
+            return result;
+        }
+        if ((m == WM_NCLBUTTONDOWN || m == WM_NCLBUTTONUP || m == WM_NCLBUTTONDBLCLK) &&
+            (wp == HTCLOSE || wp == HTMINBUTTON || wp == HTMAXBUTTON))
+            return 0;
         return DefSubclassProc(w, m, wp, lp);
     }
     bool Start(HWND frame, HWND child) {
@@ -120,6 +135,16 @@ struct OfficeLayoutApi {
     }
     HRESULT Visible(BYTE *node, bool visible) const {
         return Fn<HRESULT (*)(BYTE *, bool)>(0x72808)(node, visible);
+    }
+    HRESULT Padding(BYTE *node, int left) const {
+        auto value = Fn<BYTE *(*)(int, int, int, int)>(0xb82a0)(left, 0, 0, 0);
+        auto result = value && Value<short>(value + 4) == 10 ? Set(node, 0x83f398, value) : E_INVALIDARG;
+        Release(value);
+        return result;
+    }
+    BYTE *False() const {
+        auto value = Value<BYTE *>(base + 0xac8490);
+        return value && Value<short>(value + 4) == 3 && !Value<int>(value + 8) ? value : nullptr;
     }
     HRESULT Insert(BYTE *parent, BYTE **nodes, unsigned count) const {
         return Fn<HRESULT (*)(BYTE *, BYTE **, unsigned, BYTE *, unsigned)>(0x430d0)(parent, nodes, count, nullptr, 4);
@@ -228,6 +253,7 @@ void OfficeRefresh(HWND root) {
 #ifdef OFFICE_LEASE_EXPERIMENT
 #include "office-lease.h"
 #else
+#include "office-edit-layout.h"
 extern "C" __declspec(dllexport) DWORD WINAPI MacdowsAdapterAttachV1(const styler::AdapterContextV1 *context) {
     if (!styler::ValidContext(context) || context->adapterId != 271 || !selection.root ||
         GetWindowThreadProcessId(context->window, nullptr) != GetCurrentThreadId() || !Runtime())
@@ -244,6 +270,9 @@ extern "C" __declspec(dllexport) DWORD WINAPI MacdowsAdapterAttachV1(const style
             return ERROR_REVISION_MISMATCH;
     }
     auto root = reinterpret_cast<BYTE *>(GetWindowLongPtrW(selection.root, 0));
+    std::string editName;
+    if (ClassName(root, editName) && editName == "HWNDElement")
+        return OfficeEditLayoutExperiment(*context);
     auto parent = Value<BYTE *>(root + 0x10);
     std::string rootName;
     constexpr LONG_PTR requiredCaption = WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;

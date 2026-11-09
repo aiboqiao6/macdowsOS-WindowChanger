@@ -190,6 +190,8 @@
     <None Include="..\..\demos\window-styler\verification-v32.md" />
     <None Include="..\..\demos\window-styler\release-v33.md" />
     <None Include="..\..\demos\window-styler\verification-v33.md" />
+    <None Include="..\..\demos\window-styler\release-v34.md" />
+    <None Include="..\..\demos\window-styler\verification-v34.md" />
     <ClInclude Include="..\..\demos\window-styler\caption-colors.h" />
     <None Include="..\..\demos\window-styler\caption-policy-tests.cpp" />
     <None Include="..\..\demos\window-styler\caption-theme-client.cpp" />
@@ -206,6 +208,8 @@
     <None Include="..\..\demos\window-styler\research\framework-probe\mfc-paint-host.cpp" />
     <None Include="..\..\demos\window-styler\research\framework-probe\office.cpp" />
     <None Include="..\..\demos\window-styler\research\framework-probe\office-layout.h" />
+    <None Include="..\..\demos\window-styler\research\framework-probe\office-edit-layout.h" />
+    <None Include="..\..\demos\window-styler\research\framework-probe\office-edit-title.h" />
     <None Include="..\..\demos\window-styler\research\framework-probe\office-layout-host.cpp" />
     <None Include="..\..\demos\window-styler\research\framework-probe\office-lease.h" />
     <None Include="..\..\demos\window-styler\research\framework-probe\office-lease-host.cpp" />

@@ -14,7 +14,7 @@
 .\build.ps1 -Configuration Release
 .\build.ps1 -Architecture Win32 -Configuration Release
 .\demos\window-styler\package-original-frameworks.ps1
-# demos/window-styler/out/WindowChanger-v33/WindowStyler.exe
+# demos/window-styler/out/WindowChanger-v34/WindowStyler.exe
 ```
 
 ## 当前边界
@@ -22,7 +22,7 @@
 | 后端 | 已验证 profile |
 | --- | --- |
 | MFC/BCG x64 | 原 BCG Ribbon 标题按钮，CodeView `73D590B1-7FA3-4F9D-9CE2-E2A6D801C11C` age 1；原 runtime class、命令、绘制和布局 ABI 校验 |
-| Office NetUI x64 | 本机 Office 模块三重 CodeView 校验，144 DPI、LTR、`FullpageUIWindow` 起始页；编辑窗口不在当前范围 |
+| Office NetUI x64 | 本机 Office 模块三重 CodeView 校验，144 DPI、LTR；`FullpageUIWindow` 起始页，以及匹配双层标题容器和快捷工具栏/标题分组的 `HWNDElement` 编辑窗口；已验证空白 Word、Excel，其他结构或标题空间不足拒绝 |
 | TXGui x86 | GF CodeView `D262C6B9-151B-4748-85A4-AF86943CFC63` age 24，144 DPI、LTR、完整树和标题/header 几何匹配；空间不足拒绝 |
 
 TXGui 迁移的是三枚原 Button，保留原点击绑定与原 HWND 输入路径；没有直接调用宿主回调。原 D2D 内容阶段画三灯，普通重排处理窗口缩放；定时器只检测所有者/树失效，不跟随布局。关闭按钮不在自动验证中点击，实际关闭或托盘行为沿用宿主原按钮策略。
@@ -30,3 +30,5 @@ TXGui 迁移的是三枚原 Button，保留原点击绑定与原 HWND 输入路�
 Debug/Release 引导 DLL 已区分名称，可在不重启目标应用的情况下先后验证；旧的驻留 DLL 不表示仍有活动会话。v33 允许 Office/TXGui 在原树仍满足契约时处理主题/设置通知并重绘；原树失效或 DPI 改变仍退出恢复。通知刷新测试不等于真实亮暗主题切换验证，不承诺未知皮肤和版本持续兼容。
 
 详细原理、测试结果、失败记录和范围见源码中的 `research/frameworks-v30.md`。
+
+v34 的编辑标题使用原容器内边距为三灯保留 126 个物理像素，由原布局引擎重排快捷工具栏、标题、搜索及账户区。原按钮和 glyph 隐藏，按钮设为原生 Boolean false，移除旧 caption part/hit；Windows 标题栏无障碍查询也报告隐藏、不可用和空矩形，旧非客户区按钮消息不再操作窗口。撤销恢复原属性与节点顺序；窗口过窄时恢复原布局。验证范围及待完成项见 `verification-v34.md`。

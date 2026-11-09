@@ -62,7 +62,7 @@ for ($run=1; $run -le $Repeat; ++$run) {
         $hostResult = Get-Content (Join-Path $OutputDirectory "host-$run.log") | Select-Object -Last 1 | ConvertFrom-Json
         Check "run $run passes all persistent native checks" ($hostResult.failures -eq 0 -and $hostResult.checks -ge 30)
         Check "run $run finishes after controller crash recovery" (-not $report.active -and $report.reason -eq 'owner-lost')
-        Check "run $run restores every retained property without skips" ($report.cleanupFailures -eq 0 -and $report.skippedDestroyedOrHostChanged -eq 0 -and $report.savedProperties -eq 12)
+        Check "run $run restores every retained property without skips" ($report.cleanupFailures -eq 0 -and $report.skippedDestroyedOrHostChanged -eq 0 -and $report.savedProperties -in @(15,16))
     } else {
         Check "run $run passes all native checks" ($report.failures -eq 0 -and $report.checks -ge 120)
         Check "run $run exercises native maximize restore and minimize" ($report.maximizeInput -and $report.restoreInput -and $report.minimizeInput)

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "office-edit-title.h"
+
 // Separate from v18's bounded experiment. No timer changes layout: the sole
 // timer checks ownership and retained tree identities, and fails closed.
 namespace {
@@ -14,6 +16,8 @@ struct OfficeLease {
     DWORD ownerPid{};
     HANDLE process{};
     BYTE *root{}, *parent{};
+    OfficeEditorTitle editor;
+    bool editing{};
     std::array<BYTE *, 3> created{};
     struct Anchor {
         BYTE *node{}, *parent{}, *reference{};
@@ -93,6 +97,10 @@ struct OfficeLease {
             }
             auto hr = value.property == 0x83fb10
                           ? api.Visible(value.node, false)
+                          : value.property == 0x83fba0
+                          ? api.Set(value.node, value.property, api.False())
+                          : value.property == 0x83f398
+                          ? api.Padding(value.node, 126)
                           : api.Int(value.node, value.property, value.property == 0x837128 ? 0 : HTCAPTION);
             value.changed = true;
             api.Release(value.applied);
@@ -149,6 +157,8 @@ struct OfficeLease {
                 return false;
             }
         }
+        if (editing && !IsIconic(window) && !editor.Layout(rootWindow, 126))
+            return false;
         return true;
     }
     bool OwnerAlive() const {
@@ -177,6 +187,11 @@ struct OfficeLease {
         stopping = true;
         active = false;
         pending = false;
+        bool refresh = frame.window != nullptr;
+        for (const auto &value : saved)
+            refresh = refresh || value.changed;
+        for (auto node : created)
+            refresh = refresh || (Alive(node) && Value<BYTE *>(node + 8) == parent);
         if (timer && !topGone)
             KillTimer(window, OfficeLeaseSubclass);
         CancelInput();
@@ -231,7 +246,7 @@ struct OfficeLease {
             api.Release(value.applied);
         }
         frame.Restore();
-        if (!topGone && !rootGone && IsWindow(rootWindow) &&
+        if (refresh && !topGone && !rootGone && IsWindow(rootWindow) &&
             reinterpret_cast<BYTE *>(GetWindowLongPtrW(rootWindow, 0)) == root && Alive(root))
             OfficeRefresh(rootWindow);
         WriteReport();
@@ -315,7 +330,28 @@ struct OfficeLease {
                 return GetCapture() == s->rootWindow;
             if (wp == 6)
                 return s->canceledInput;
-            if (wp == 3 && lp >= 0 && lp < 4) {
+            if (wp == 7) {
+                unsigned disabled{};
+                for (auto &value : s->saved)
+                    if (value.property == 0x83fba0) {
+                        auto actual = s->api.Get(value.node, value.property);
+                        bool off = actual && actual == s->api.False();
+                        s->api.Release(actual);
+                        if (!off)
+                            return 0;
+                        ++disabled;
+                    }
+                return disabled == 3;
+            }
+            if (wp == 8)
+                return s->editing;
+            if (wp == 9 && s->editing) {
+                RECT outer{}, client{};
+                GetWindowRect(s->window, &outer);
+                GetClientRect(s->rootWindow, &client);
+                return OfficeLocalRect(s->editor.children.front()).right + 126 + 600 + outer.right - outer.left - client.right;
+            }
+            if (wp == 3 && lp >= 0 && lp < 5) {
                 DwmFlush();
                 auto capture = OfficeCaptureTop(s->rootWindow, s->window);
                 constexpr COLORREF colors[]{RGB(255, 95, 87), RGB(255, 189, 46), RGB(40, 200, 64)};
@@ -444,11 +480,28 @@ struct OfficeLease {
         auto prepare = [&]() {
             std::string name;
             constexpr LONG_PTR bits = WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
-            if (!process || GetPropW(window, styler::OwnerProperty) || GetPropW(window, styler::InlineProperty) ||
+            if (!process || !api.False() || GetPropW(window, styler::OwnerProperty) || GetPropW(window, styler::InlineProperty) ||
                 IsIconic(window) || !IsWindowEnabled(window) || GetDpiForWindow(window) != 144 ||
                 (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_LAYOUTRTL) ||
-                (GetWindowLongPtrW(window, GWL_STYLE) & bits) != bits || !ClassName(root, name) ||
-                name != "FullpageUIWindow" || !parent ||
+                (GetWindowLongPtrW(window, GWL_STYLE) & bits) != bits || !ClassName(root, name))
+                return false;
+            editing = name == "HWNDElement";
+            if (editing) {
+                if (!editor.Find(root, selection.parent, rootWindow, api.base))
+                    return false;
+                parent = editor.row;
+                if (!Retain(root) || !Retain(parent) || !Retain(editor.title) || !Retain(editor.content) ||
+                    !Save(editor.title, 0x83f398))
+                    return false;
+                auto padding = saved.back().original;
+                if (Value<short>(padding + 4) != -1 &&
+                    (Value<short>(padding + 4) != 10 || Value<RECT>(padding + 8).left ||
+                     Value<RECT>(padding + 8).top || Value<RECT>(padding + 8).right || Value<RECT>(padding + 8).bottom))
+                    return false;
+                for (auto child : editor.children)
+                    if (!Retain(child))
+                        return false;
+            } else if (name != "FullpageUIWindow" || !parent ||
                 Value<BYTE **>(parent) != reinterpret_cast<BYTE **>(api.base + 0x84ba60) ||
                 Value<BYTE *>(parent + 8) != root || !Retain(root) || !Retain(parent))
                 return false;
@@ -462,10 +515,11 @@ struct OfficeLease {
                     api.Fn<int (*)(BYTE *, BYTE *, bool *)>(0x333d0)(node, api.base + 0x948250, nullptr) == HTCAPTION)
                     caption = node;
             }
-            if (!caption)
+            bool editingTitle = editing;
+            if (!caption && !editingTitle)
                 return false;
             POINT origin{};
-            for (auto node = caption; node && node != root; node = Value<BYTE *>(node + 8)) {
+            for (auto node = editingTitle ? nullptr : caption; node && node != root; node = Value<BYTE *>(node + 8)) {
                 name.clear();
                 ClassName(node, name);
                 if (Value<BYTE **>(node) != reinterpret_cast<BYTE **>(api.base + 0x84ba60) && name != "AppFrameHelper")
@@ -474,12 +528,16 @@ struct OfficeLease {
                 origin.x += p.x;
                 origin.y += p.y;
             }
+            if (editingTitle)
+                origin.x = 126;
             if (origin.x < MulDiv(84, 144, 96))
                 return false;
             for (auto button : selection.buttons) {
                 auto glyph = button ? Value<BYTE *>(button + 0x10) : nullptr;
                 if (!glyph || !Save(button, 0x83fb10) || !Save(glyph, 0x83fb10) || !Save(button, 0x837128) ||
                     !Save(button, 0x948250))
+                    return false;
+                if (!Save(button, 0x83fba0))
                     return false;
             }
             for (unsigned i = 0; i < 3; ++i) {
@@ -495,15 +553,17 @@ struct OfficeLease {
                 constexpr int commands[]{SC_CLOSE, SC_MINIMIZE, SC_MAXIMIZE}, hits[]{HTCLOSE, HTMINBUTTON, HTMAXBUTTON};
                 for (auto property : {std::pair<size_t, int>{0x838600, 2},
                                       {0x949f20, MulDiv(10 + static_cast<int>(i) * 20, 144, 96)},
-                                      {0x949f60, MulDiv(4, 144, 96)},
+                                      {0x949f60, editingTitle ? 0 : MulDiv(4, 144, 96)},
                                       {0x83f290, 20},
-                                      {0x83f250, 24},
+                                      {0x83f250, editingTitle ? 34 : 24},
                                       {0x837128, 1},
                                       {0x8371a0, commands[i]},
                                       {0x948250, hits[i]},
                                       {0x8387c0, MulDiv(12, 144, 96)}})
                     if (FAILED(api.Int(created[i], property.first, property.second)))
                         return false;
+                if (editingTitle && FAILED(api.Int(created[i], 0x83fd30, 5)))
+                    return false;
                 constexpr COLORREF colors[]{RGB(255, 95, 87), RGB(255, 189, 46), RGB(40, 200, 64)};
                 if (FAILED(api.Text(created[i], 0x83ff48, L"\x25cf")) ||
                     FAILED(api.Text(created[i], 0x83f3d8, L"Segoe UI Symbol")) ||
@@ -521,7 +581,7 @@ struct OfficeLease {
             OfficeRefresh(rootWindow);
             for (unsigned i = 0; i < 3; ++i) {
                 auto size = Value<SIZE>(created[i] + 0x80);
-                int x = MulDiv(10 + static_cast<int>(i) * 20, 144, 96), y = MulDiv(4, 144, 96);
+                int x = MulDiv(10 + static_cast<int>(i) * 20, 144, 96), y = editingTitle ? 0 : MulDiv(4, 144, 96);
                 frame.buttons[i] = {x, y, x + size.cx, y + size.cy};
                 if (size.cx <= 0 || size.cy <= 0 || x + size.cx > origin.x || y + size.cy > MulDiv(48, 144, 96))
                     return false;
