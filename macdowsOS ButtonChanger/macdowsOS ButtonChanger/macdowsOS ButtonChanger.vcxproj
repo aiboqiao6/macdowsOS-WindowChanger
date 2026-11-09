@@ -248,5 +248,9 @@
     <None Include="../../demos/window-styler/research/avalonia-fixture/Program.cs" />
     <None Include="../../demos/window-styler/research/test-avalonia-inline.ps1" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../../demos/window-styler/research/winui3-probe/title-read.cpp" />
+    <None Include="../../demos/window-styler/research/winui3-probe/title-read.md" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
