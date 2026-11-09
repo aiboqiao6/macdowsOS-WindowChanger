@@ -247,9 +247,19 @@ struct LeftLease {
             self->Stop("window-destroyed");
             return DefSubclassProc(window, message, wp, lp);
         }
-        if (message == WM_DPICHANGED || message == WM_THEMECHANGED || message == WM_SETTINGCHANGE) {
+        if (message == WM_DPICHANGED) {
             self->Stop("unsupported-environment-change");
             return DefSubclassProc(window, message, wp, lp);
+        }
+        if (message == WM_THEMECHANGED || message == WM_SETTINGCHANGE) {
+            auto result = DefSubclassProc(window, message, wp, lp);
+            if (self->active && !self->pending) {
+                if (!self->Health())
+                    self->Stop("theme-original-tree-changed");
+                else
+                    RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
+            }
+            return result;
         }
         if (message == WM_NCHITTEST) {
             POINT point{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};

@@ -201,6 +201,8 @@ Candidate Inspect(HWND window, bool forInjection, bool allowOtherArchitecture, H
     bool uniformLayered = GetLayeredWindowAttributes(window, &layeredKey, &layeredAlpha, &layeredFlags) != FALSE;
     DwmGetWindowAttribute(window, DWMWA_CLOAKED, &cloaked, sizeof(cloaked));
     const bool embedded = embeddedFrame && EmbeddedCore(window, embeddedFrame);
+    RECT bounds{};
+    const bool hasBounds = GetWindowRect(window, &bounds) != FALSE;
     if (embeddedFrame && !embedded)
         c.reason = L"嵌入内容与 ApplicationFrame 的窗口关系未通过验证";
     else if (!IsWindow(window) || !IsWindowVisible(window) ||
@@ -215,6 +217,8 @@ Candidate Inspect(HWND window, bool forInjection, bool allowOtherArchitecture, H
         c.reason = L"桌面、任务栏及其按钮不属于应用窗口";
     else if (cloaked && !embedded)
         c.reason = L"DWM 隐藏窗口（其他桌面或系统后台），当前没有可见画面可检查";
+    else if (!IsIconic(window) && (!hasBounds || IsRectEmpty(&bounds)))
+        c.reason = L"零面积辅助窗口，当前没有可见画面可适配";
     else if ((GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) &&
              !(GetWindowLongPtrW(window, GWL_STYLE) & (WS_CAPTION | WS_SYSMENU)))
         c.reason = L"工具 / 托盘辅助窗口，不作为主应用窗口替换标题栏";

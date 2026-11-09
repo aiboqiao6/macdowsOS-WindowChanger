@@ -459,6 +459,27 @@
     <None Include="..\..\demos\window-styler\verification-v32.md">
       <Filter>框架研究</Filter>
     </None>
+    <None Include="..\..\demos\window-styler\release-v33.md">
+      <Filter>框架研究</Filter>
+    </None>
+    <None Include="..\..\demos\window-styler\verification-v33.md">
+      <Filter>框架研究</Filter>
+    </None>
+    <ClInclude Include="..\..\demos\window-styler\caption-colors.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <None Include="..\..\demos\window-styler\caption-policy-tests.cpp">
+      <Filter>源文件</Filter>
+    </None>
+    <None Include="..\..\demos\window-styler\caption-theme-client.cpp">
+      <Filter>源文件</Filter>
+    </None>
+    <None Include="..\..\demos\window-styler\research\collect-software-coverage.ps1">
+      <Filter>框架研究</Filter>
+    </None>
+    <None Include="..\..\demos\window-styler\research\summarize-software-coverage.ps1">
+      <Filter>框架研究</Filter>
+    </None>
     <None Include="..\..\demos\window-styler\research\verify-auto-all.ps1">
       <Filter>框架研究</Filter>
     </None>
@@ -552,5 +573,22 @@
     <None Include="..\..\demos\window-styler\research\frameworks-v25.md">
       <Filter>框架研究</Filter>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../demos/window-styler/research/electron-fixture/main.cjs"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/electron-fixture/package.json"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/electron-fixture/README.md"><Filter>框架研究</Filter></None>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../demos/window-styler/research/avalonia-adapter/CMakeLists.txt"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/avalonia-adapter/Bridge.csproj"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/avalonia-adapter/Backend.csproj"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/avalonia-adapter/bridge.cs"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/avalonia-adapter/backend.cs"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/avalonia-adapter/native.cpp"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/avalonia-adapter/README.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/avalonia-fixture/Fixture.csproj"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/avalonia-fixture/Program.cs"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/test-avalonia-inline.ps1"><Filter>框架研究</Filter></None>
   </ItemGroup>
 </Project>

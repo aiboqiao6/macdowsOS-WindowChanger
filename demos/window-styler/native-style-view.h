@@ -8,6 +8,7 @@
 #include <cstring>
 #include <commctrl.h>
 #include "nonclient-frame.h"
+#include "caption-colors.h"
 
 namespace styler::style_view {
 inline constexpr wchar_t StyleProperty[] = L"Macdows.WindowStyler.NetUI.SystemMenu.v1";
@@ -114,6 +115,16 @@ inline BOOL WINAPI Info(HWND w, PWINDOWINFO i) {
 }
 inline HRESULT WINAPI Dwm(HWND w, DWORD n, PVOID value, DWORD size) {
     auto hr = DwmGetWindowAttribute(w, n, value, size);
+    BOOL dark{};
+    if (n == DWMWA_USE_IMMERSIVE_DARK_MODE && value && size >= sizeof(dark) && TrackedCaptionDarkMode(w, dark)) {
+        memcpy(value, &dark, sizeof(dark));
+        return S_OK;
+    }
+    COLORREF color{};
+    if (value && size >= sizeof(color) && TrackedCaptionColor(w, n, color)) {
+        memcpy(value, &color, sizeof(color));
+        return S_OK;
+    }
     if (n == DWMWA_CAPTION_BUTTON_BOUNDS && value && size >= sizeof(RECT) && GetPropW(w, StyleProperty)) {
         int metrics[4]{};
         bool valid = true;
@@ -135,6 +146,26 @@ inline HRESULT WINAPI Dwm(HWND w, DWORD n, PVOID value, DWORD size) {
     }
     return hr;
 }
+inline HRESULT WINAPI SetDwm(HWND w, DWORD n, LPCVOID value, DWORD size) {
+    auto hr = DwmSetWindowAttribute(w, n, value, size);
+    if (SUCCEEDED(hr) && value && size == sizeof(COLORREF) && CaptionColorIndex(n) >= 0 &&
+        GetPropW(w, CaptionColorOwner)) {
+        COLORREF color{};
+        memcpy(&color, value, sizeof(color));
+        if (!TrackCaptionColor(w, n, color))
+            return E_OUTOFMEMORY;
+        PostMessageW(w, CaptionColorMessage(), n, 0);
+    }
+    if (SUCCEEDED(hr) && n == DWMWA_USE_IMMERSIVE_DARK_MODE && value && size == sizeof(BOOL) &&
+        GetPropW(w, CaptionColorOwner)) {
+        BOOL dark{};
+        memcpy(&dark, value, sizeof(dark));
+        if (!SetPropW(w, CaptionDarkModeProperty, reinterpret_cast<HANDLE>(ULONG_PTR(dark ? 2 : 1))))
+            return E_OUTOFMEMORY;
+        PostMessageW(w, CaptionColorMessage(), n, 0);
+    }
+    return hr;
+}
 struct Entry {
     const char *name;
     void *replacement;
@@ -149,14 +180,16 @@ inline std::mutex mutex;
 inline unsigned users{};
 inline std::vector<Slot> slots;
 inline std::vector<HMODULE> modules;
-inline std::array<Entry, 6> Entries() {
+inline std::array<Entry, 7> Entries() {
     return {
         {{"GetWindowLongPtrW", reinterpret_cast<void *>(&LongPtrW), reinterpret_cast<void *>(&GetWindowLongPtrW)},
          {"GetWindowLongPtrA", reinterpret_cast<void *>(&LongPtrA), reinterpret_cast<void *>(&GetWindowLongPtrA)},
          {"GetWindowLongW", reinterpret_cast<void *>(&LongW), reinterpret_cast<void *>(&GetWindowLongW)},
          {"GetWindowLongA", reinterpret_cast<void *>(&LongA), reinterpret_cast<void *>(&GetWindowLongA)},
          {"GetWindowInfo", reinterpret_cast<void *>(&Info), reinterpret_cast<void *>(&GetWindowInfo)},
-         {"DwmGetWindowAttribute", reinterpret_cast<void *>(&Dwm), reinterpret_cast<void *>(&DwmGetWindowAttribute)}}};
+         {"DwmGetWindowAttribute", reinterpret_cast<void *>(&Dwm), reinterpret_cast<void *>(&DwmGetWindowAttribute)},
+         {"DwmSetWindowAttribute", reinterpret_cast<void *>(&SetDwm),
+          reinterpret_cast<void *>(&DwmSetWindowAttribute)}}};
 }
 inline void Restore() {
     for (auto &s : slots) {
@@ -188,7 +221,14 @@ inline bool AcquireReads() {
     auto entries = Entries();
     bool ok = true;
     for (BOOL found = Module32FirstW(snapshot, &item); found; found = Module32NextW(snapshot, &item)) {
-        if (item.hModule == self)
+        // Other revisions/backends contain the same forwarding shims. Patching
+        // their own API imports can create a cycle when two leases coexist.
+        // Host modules remain eligible; only adapter/engine implementations are
+        // excluded, based on their exported ABI rather than an application name.
+        if (item.hModule == self || GetProcAddress(item.hModule, "MacdowsAdapterProbeV1") ||
+            GetProcAddress(item.hModule, "MacdowsAdapterAttachV1") ||
+            GetProcAddress(item.hModule, "_MacdowsAdapterProbeV1@4") ||
+            GetProcAddress(item.hModule, "MacdowsStyleHook") || GetProcAddress(item.hModule, "_MacdowsStyleHook@12"))
             continue;
         HMODULE retained{};
         if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(item.modBaseAddr),

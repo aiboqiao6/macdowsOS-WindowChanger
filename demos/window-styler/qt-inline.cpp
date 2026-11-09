@@ -128,20 +128,26 @@ class QuickLights final : public QQuickPaintedItem {
 struct HiddenWidget {
     QPointer<QWidget> widget;
     bool hidden{};
+    bool forceDisabled{};
 };
 struct HiddenItem {
     QPointer<QQuickItem> item;
     bool visible{};
     QQmlAnyBinding binding;
+    bool enabled{};
+    QQmlAnyBinding enabledBinding;
 };
 class PropertyGuard final : public QObject {
     Q_OBJECT
   public:
     std::function<void()> changed;
+    std::function<void()> enabledChanged;
     bool enforcing{};
     bool eventFilter(QObject *, QEvent *event) override {
         if (event->type() == QEvent::Show)
             Changed();
+        if (event->type() == QEvent::EnabledChange)
+            EnabledChanged();
         return false;
     }
   public slots:
@@ -150,6 +156,13 @@ class PropertyGuard final : public QObject {
             return;
         enforcing = true;
         changed();
+        enforcing = false;
+    }
+    void EnabledChanged() {
+        if (enforcing || !enabledChanged)
+            return;
+        enforcing = true;
+        enabledChanged();
         enforcing = false;
     }
 };
@@ -194,8 +207,10 @@ void Release(State *s) {
         s->row->removeWidget(s->widgetLights);
     delete s->widgetLights.data();
     for (auto &saved : s->widgets)
-        if (saved.widget)
+        if (saved.widget) {
+            saved.widget->setEnabled(!saved.forceDisabled);
             saved.widget->setHidden(saved.hidden);
+        }
     if (s->row)
         s->row->activate();
     delete s->quickLights.data();
@@ -206,6 +221,9 @@ void Release(State *s) {
     }
     for (auto &saved : s->items)
         if (saved.item) {
+            saved.item->setEnabled(saved.enabled);
+            if (saved.enabledBinding)
+                saved.enabledBinding.installOn(QQmlProperty(saved.item, "enabled"));
             saved.item->setVisible(saved.visible);
             if (saved.binding)
                 saved.binding.installOn(QQmlProperty(saved.item, "visible"));
@@ -264,6 +282,14 @@ LRESULT CALLBACK Subclass(HWND window, UINT message, WPARAM param, LPARAM data, 
                     ++n;
             return n;
         }
+        case styler::Metric::InlineOriginalButtonsEnabled: {
+            int n{};
+            for (auto &v : s->widgets)
+                n += v.widget && v.widget->isEnabled() ? 1 : 0;
+            for (auto &v : s->items)
+                n += v.item && v.item->isEnabled() ? 1 : 0;
+            return n;
+        }
         default:
             return 0;
         }
@@ -302,8 +328,9 @@ bool AttachWidgets(State *s) {
         s->widgetTabs = tabs;
         for (auto *button : parent->findChildren<QAbstractButton *>(QString(), Qt::FindDirectChildrenOnly))
             if (WindowControl(button->objectName())) {
-                s->widgets.push_back({button, button->isHidden()});
+                s->widgets.push_back({button, button->isHidden(), button->testAttribute(Qt::WA_ForceDisabled)});
                 button->hide();
+                button->setEnabled(false);
             }
         if (s->widgets.empty())
             return false;
@@ -318,6 +345,13 @@ bool AttachWidgets(State *s) {
                 if (saved.widget) {
                     saved.hidden = false;
                     saved.widget->hide();
+                }
+            };
+            guard->enabledChanged = [s, i] {
+                auto &saved = s->widgets[i];
+                if (saved.widget && saved.widget->isEnabled()) {
+                    saved.forceDisabled = saved.widget->testAttribute(Qt::WA_ForceDisabled);
+                    saved.widget->setEnabled(false);
                 }
             };
             s->widgets[i].widget->installEventFilter(guard);
@@ -343,9 +377,11 @@ bool AttachQuick(State *s) {
             s->originalPadding = tabs->property("leftPadding");
             for (auto *item : quick->contentItem()->findChildren<QQuickItem *>())
                 if (WindowControl(item->objectName()) && item->mapToScene(QPointF(0, 0)).y() < 64) {
-                    s->items.push_back(
-                        {item, item->isVisible(), QQmlAnyBinding::takeFrom(QQmlProperty(item, "visible"))});
+                    s->items.push_back({item, item->isVisible(),
+                                        QQmlAnyBinding::takeFrom(QQmlProperty(item, "visible")), item->isEnabled(),
+                                        QQmlAnyBinding::takeFrom(QQmlProperty(item, "enabled"))});
                     item->setVisible(false);
+                    item->setEnabled(false);
                 }
             if (s->items.empty())
                 return false;
@@ -362,7 +398,16 @@ bool AttachQuick(State *s) {
                         saved.item->setVisible(false);
                     }
                 };
+                guard->enabledChanged = [s, i] {
+                    auto &saved = s->items[i];
+                    if (saved.item && saved.item->isEnabled()) {
+                        saved.enabled = true;
+                        saved.enabledBinding = QQmlAnyBinding::takeFrom(QQmlProperty(saved.item, "enabled"));
+                        saved.item->setEnabled(false);
+                    }
+                };
                 QQmlProperty(s->items[i].item, "visible").connectNotifySignal(guard, SLOT(Changed()));
+                QQmlProperty(s->items[i].item, "enabled").connectNotifySignal(guard, SLOT(EnabledChanged()));
                 s->guards.push_back(guard);
             }
             auto paddingGuard = new PropertyGuard;

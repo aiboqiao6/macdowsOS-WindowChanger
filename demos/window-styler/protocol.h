@@ -127,7 +127,11 @@ enum class Metric : WPARAM {
     InlineTabsLeft,
     InlineOriginalButtonsVisible,
     InlineKind,
-    InlineTabIndex
+    InlineTabIndex,
+    InlineOriginalButtonsEnabled,
+    // Screen-physical center coordinates; lParam is the button index (0..2).
+    ButtonCenterX,
+    ButtonCenterY
 };
 inline UINT DiagnosticMessage() {
     static UINT id = RegisterWindowMessageW(L"Macdows.WindowStyler.Diagnostics.v1");

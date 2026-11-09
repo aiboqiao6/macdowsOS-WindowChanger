@@ -351,6 +351,7 @@ struct State {
     c::Grid lights{nullptr};
     c::ColumnDefinition column{nullptr}, implicitColumn{nullptr};
     std::vector<Saved> saved;
+    std::vector<c::Control> disabledControls;
     std::vector<HWND> captionInputs;
     bool styleReads{}, systemMenu{}, movingBridge{}, unloadWatched{};
     winrt::event_token unloadToken{};
@@ -638,6 +639,14 @@ LRESULT CALLBACK Subclass(HWND window, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWO
             case styler::Metric::InlineOriginalButtonsVisible:
                 return s->layout.nativeCaption ? ((GetWindowLongPtrW(window, GWL_STYLE) & WS_SYSMENU) ? 3 : 0)
                                                : (s->layout.original.Visibility() == x::Visibility::Visible ? 3 : 0);
+            case styler::Metric::InlineOriginalButtonsEnabled: {
+                if (s->layout.nativeCaption)
+                    return (GetWindowLongPtrW(window, GWL_STYLE) & WS_SYSMENU) ? 3 : 0;
+                unsigned enabled = s->layout.original.IsHitTestVisible() ? 1u : 0u;
+                for (auto const &control : s->disabledControls)
+                    enabled += control.IsEnabled() ? 1u : 0u;
+                return enabled;
+            }
             case styler::Metric::InlineKind:
                 return 4;
             default:
@@ -744,6 +753,21 @@ extern "C" __declspec(dllexport) DWORD WINAPI MacdowsAdapterAttachV1(const style
             s->layout.title.MinHeight(std::max(s->layout.title.MinHeight(), s->layout.title.ActualHeight()));
             s->saved.emplace_back(s->layout.original, x::UIElement::VisibilityProperty());
             s->layout.original.Visibility(x::Visibility::Collapsed);
+            s->saved.emplace_back(s->layout.original, x::UIElement::IsHitTestVisibleProperty());
+            s->layout.original.IsHitTestVisible(false);
+            std::function<void(x::DependencyObject const &)> disable = [&](auto const &node) {
+                if (auto control = node.template try_as<c::Control>(); control && Command(control) >= 0) {
+                    s->saved.emplace_back(control, c::Control::IsEnabledProperty());
+                    s->disabledControls.push_back(control);
+                    control.IsEnabled(false);
+                }
+                const auto count = x::Media::VisualTreeHelper::GetChildrenCount(node);
+                for (int i = 0; i < count; ++i)
+                    disable(x::Media::VisualTreeHelper::GetChild(node, i));
+            };
+            disable(s->layout.original);
+            if (s->disabledControls.empty())
+                throw hresult_error(E_FAIL);
         }
         if (s->layout.nativeCaption) {
             // Keep the original parent, Loaded/Unloaded lifetime, and all host
@@ -824,6 +848,9 @@ extern "C" __declspec(dllexport) DWORD WINAPI MacdowsAdapterAttachV1(const style
         for (auto &saved : s->saved) {
             if (saved.property == x::UIElement::VisibilityProperty())
                 saved.Watch([](auto const &) { return box_value(x::Visibility::Collapsed); });
+            if (saved.property == x::UIElement::IsHitTestVisibleProperty() ||
+                saved.property == c::Control::IsEnabledProperty())
+                saved.Watch([](auto const &) { return box_value(false); });
             if (saved.property == c::Grid::PaddingProperty())
                 saved.Watch([s](auto const &v) {
                     auto p = unbox_value<x::Thickness>(v);

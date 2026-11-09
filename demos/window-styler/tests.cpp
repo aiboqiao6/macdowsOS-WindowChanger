@@ -385,6 +385,9 @@ int InlineTests(const std::wstring &path, size_t expected, int kind = 0, const s
               "only a native system-button group may change its visibility style");
         Check(Metric(w, styler::Metric::InlineOriginalButtonsVisible) == 0,
               "original right-side window buttons are hidden");
+        if (!kind || kind == 3 || kind == 4)
+            Check(Metric(w, styler::Metric::InlineOriginalButtonsEnabled) == 0,
+                  "hidden original commands are disabled for pointer and keyboard input");
         auto dpi = GetDpiForWindow(w);
         auto h = Metric(w, styler::Metric::InlineHeight);
         Check(h == MulDiv(40, dpi, 96) && Metric(w, styler::Metric::InlineTabsLeft) >= MulDiv(84, dpi, 96),
@@ -400,6 +403,8 @@ int InlineTests(const std::wstring &path, size_t expected, int kind = 0, const s
             Send(w, WM_APP + 66, 1);
             captionStable = captionStable && Metric(w, styler::Metric::InlineOriginalButtonsVisible) == 0 &&
                             Metric(w, styler::Metric::InlineTabsLeft) >= MulDiv(84, dpi, 96);
+            if (!kind || kind == 3 || kind == 4)
+                captionStable = captionStable && Metric(w, styler::Metric::InlineOriginalButtonsEnabled) == 0;
         }
         Check(captionStable, "host view refresh cannot re-show original buttons or overwrite reserved title space");
         Check(Until([&] { return Metric(w, styler::Metric::InlineLeft) == 0; }),
@@ -447,6 +452,11 @@ int InlineTests(const std::wstring &path, size_t expected, int kind = 0, const s
                   !GetPropW(w, styler::InlineProperty) && !GetPropW(w, styler::OwnerProperty),
               "detach restores exact geometry/styles and removes injected state");
         Check(ChildCount(w) == childCount, "detach removes all native child HWNDs created by injection");
+        if (!kind || kind == 3) {
+            DWORD_PTR originalInput{};
+            Check(Send(w, WM_APP + 67, 0, 0, &originalInput) && originalInput == 3,
+                  "detach restores the original framework command group's input properties");
+        }
         if (kind == 4) {
             Check(Until([&] { return session.Apply(w).ok; }), "attach before host disables its original command group");
             Send(w, WM_APP + 66, 2);
@@ -501,6 +511,88 @@ int InlineTests(const std::wstring &path, size_t expected, int kind = 0, const s
             Send(w, WM_CLOSE);
     Check(WaitForSingleObject(target.process.hProcess, 4000) == WAIT_OBJECT_0,
           "framework applications exit cleanly after close");
+    DestroyWindow(controller);
+    return failures ? 1 : 0;
+}
+int XamlOsCaptionTests(const std::wstring &path) {
+    HWND controller = Controller();
+    auto clientPixels = [](HWND w) {
+        RECT r{};
+        GetClientRect(w, &r);
+        POINT origin{};
+        ClientToScreen(w, &origin);
+        auto screen = GetDC(nullptr);
+        auto dc = CreateCompatibleDC(screen);
+        BITMAPINFO info{};
+        info.bmiHeader.biSize = sizeof(info.bmiHeader);
+        info.bmiHeader.biWidth = r.right;
+        info.bmiHeader.biHeight = -r.bottom;
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        void *data{};
+        auto bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &data, nullptr, 0);
+        auto old = bitmap && dc ? SelectObject(dc, bitmap) : nullptr;
+        std::vector<DWORD> pixels;
+        if (old && BitBlt(dc, 0, 0, r.right, r.bottom, screen, origin.x, origin.y, SRCCOPY | CAPTUREBLT)) {
+            GdiFlush();
+            for (int y = 3; y < r.bottom - 3; y += 3)
+                for (int x = 3; x < r.right - 3; x += 3)
+                    pixels.push_back(static_cast<DWORD *>(data)[y * r.right + x] & 0xffffff);
+        }
+        if (old) SelectObject(dc, old);
+        if (bitmap) DeleteObject(bitmap);
+        if (dc) DeleteDC(dc);
+        ReleaseDC(nullptr, screen);
+        return pixels;
+    };
+    for (const auto *arguments : {L"--native-caption", L"--native-caption --no-system-menu",
+                                  L"--native-caption --no-redirection"}) {
+        Child target(path, arguments);
+        std::vector<HWND> windows;
+        Check(Until([&] {
+                  windows = Windows(target.process.dwProcessId);
+                  return windows.size() == 1 && GetPropW(windows.front(), styler::SamplePaintProperty);
+              }),
+              "real XAML composition client with a native-looking OS caption renders");
+        if (windows.size() != 1)
+            continue;
+        HWND w = windows.front();
+        SetWindowPos(w, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+        SetForegroundWindow(w);
+        Check(Until([&] { return GetForegroundWindow() == w; }), "owned XAML fixture is unobscured for pixel checks");
+        Until([] { return false; }, 250);
+        Check(styler::DetectFramework(w).id == L"winui", "real XAML child identifies the framework");
+        auto candidate = styler::InspectInline(w);
+        Check(candidate.adapterMode != styler::Adapter::Native,
+              "a real nonclient band cannot bypass original-tree validation for XAML composition");
+        RECT outer{}, client{};
+        POINT origin{};
+        GetWindowRect(w, &outer);
+        GetClientRect(w, &client);
+        ClientToScreen(w, &origin);
+        const auto style = GetWindowLongPtrW(w, GWL_STYLE);
+        const auto childCount = ChildCount(w);
+        const auto originalPixels = clientPixels(w);
+        styler::GuardedSession session(controller);
+        Check(!session.Apply(w).ok, "XAML host without a compatible original title tree rejects attachment");
+        Check(!GetPropW(w, styler::OwnerProperty) && !GetPropW(w, styler::InlineProperty) &&
+                  !GetPropW(w, styler::AdapterProperty),
+              "rejected composition layout leaves no active caption lease");
+        RECT currentOuter{}, currentClient{};
+        POINT currentOrigin{};
+        GetWindowRect(w, &currentOuter);
+        GetClientRect(w, &currentClient);
+        ClientToScreen(w, &currentOrigin);
+        Check(EqualRect(&outer, &currentOuter) && EqualRect(&client, &currentClient) &&
+                  origin.x == currentOrigin.x && origin.y == currentOrigin.y && ChildCount(w) == childCount,
+              "rejection preserves original outer/client geometry, origin and XAML HWND count");
+        Check(GetWindowLongPtrW(w, GWL_STYLE) == style, "rejection preserves original button capabilities");
+        Check(!originalPixels.empty() && originalPixels == clientPixels(w),
+              "rejected layout preserves sampled pixels of the real composed XAML client");
+        Send(w, WM_CLOSE);
+        Check(WaitForSingleObject(target.process.hProcess, 4000) == WAIT_OBJECT_0,
+              "owned composition rejection fixture exits cleanly");
+    }
     DestroyWindow(controller);
     return failures ? 1 : 0;
 }
@@ -646,6 +738,8 @@ int wmain(int argc, wchar_t **argv) {
         return InlineTests(argv[2], 1, 4);
     if (argc == 3 && wcscmp(argv[1], L"--xaml-hybrid") == 0)
         return InlineTests(argv[2], 1, 4, L"--hybrid");
+    if (argc == 3 && wcscmp(argv[1], L"--xaml-os-caption") == 0)
+        return XamlOsCaptionTests(argv[2]);
     if (argc == 3 && wcscmp(argv[1], L"--inline-lease-worker") == 0) {
         HWND controller = Controller();
         styler::GuardedSession session(controller);
@@ -844,6 +938,18 @@ int wmain(int argc, wchar_t **argv) {
                   GetWindowLongPtrW(plain, GWL_EXSTYLE) == originalExStyle,
               "original style and extended style bits are unchanged");
         Check(RoundedRegion(plain, true), "first frame clips all four original window corners");
+        SetWindowRgn(plain, nullptr, FALSE);
+        Send(plain, WM_THEMECHANGED);
+        Check(Until([&] { return RoundedRegion(plain, true); }),
+              "same-size theme notification rebuilds a cleared host region");
+        RECT rectangular{};
+        GetWindowRect(plain, &rectangular);
+        SetWindowRgn(plain,
+                     CreateRectRgn(0, 0, rectangular.right - rectangular.left, rectangular.bottom - rectangular.top),
+                     FALSE);
+        Send(plain, WM_SETTINGCHANGE);
+        Check(Until([&] { return RoundedRegion(plain, true); }),
+              "same-size setting notification replaces a rectangular host region");
         RECT currentClient{};
         GetClientRect(plain, &currentClient);
         Check(EqualRect(&currentClient, &originalClient), "original client geometry is preserved");
@@ -1038,6 +1144,14 @@ int wmain(int argc, wchar_t **argv) {
             }
             if (style & WS_HSCROLL)
                 bottomAllowance += GetSystemMetricsForDpi(SM_CYHSCROLL, GetDpiForWindow(window));
+            if (origin.x < visible.left || origin.x - visible.left > leftAllowance ||
+                visible.right < origin.x + after.right || visible.right - origin.x - after.right > rightAllowance ||
+                visible.bottom < origin.y + after.bottom || visible.bottom - origin.y - after.bottom > bottomAllowance)
+                std::cout << "frame geometry: visible=" << visible.left << ',' << visible.top << ',' << visible.right
+                          << ',' << visible.bottom << " client-origin=" << origin.x << ',' << origin.y
+                          << " client-size=" << after.right << ',' << after.bottom << " dpi=" << GetDpiForWindow(window)
+                          << " allowances=" << leftAllowance << ',' << rightAllowance << ',' << bottomAllowance
+                          << std::endl;
             Check(origin.x >= visible.left && origin.x - visible.left <= leftAllowance &&
                       visible.right >= origin.x + after.right &&
                       visible.right - origin.x - after.right <= rightAllowance,

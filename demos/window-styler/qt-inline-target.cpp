@@ -78,9 +78,18 @@ class Browser : public QWidget {
   protected:
     bool nativeEvent(const QByteArray &type, void *event, qintptr *result) override {
         if (reinterpret_cast<MSG *>(event)->message == WM_APP + 66) {
-            for (auto *button : findChildren<QPushButton *>())
+            for (auto *button : findChildren<QPushButton *>()) {
                 button->show();
+                button->setEnabled(true);
+            }
             *result = 1;
+            return true;
+        }
+        if (reinterpret_cast<MSG *>(event)->message == WM_APP + 67) {
+            int enabled{};
+            for (auto *button : findChildren<QPushButton *>())
+                enabled += button->isEnabled() ? 1 : 0;
+            *result = enabled;
             return true;
         }
         if (reinterpret_cast<MSG *>(event)->message == WM_PAINT)
@@ -108,6 +117,14 @@ class QuickBrowser : public QQuickView {
                 if (item->objectName().endsWith("Button") && item->isVisible())
                     ++visible;
             *result = visible;
+            return true;
+        }
+        if (message->message == WM_APP + 67) {
+            int enabled{};
+            for (auto *item : rootObject()->findChildren<QQuickItem *>())
+                if (item->objectName().endsWith("Button") && item->isEnabled())
+                    ++enabled;
+            *result = enabled;
             return true;
         }
         return QQuickView::nativeEvent(type, event, result);

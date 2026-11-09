@@ -15,6 +15,22 @@ Candidate InspectInline(HWND window) {
     c.runtime = framework.runtime;
     if (!c.supported)
         return c;
+    // Qt and WPF can keep an ordinary OS caption above their client tree.
+    // XAML composition can cover that same band and shift its pixels even
+    // when all HWND geometry APIs remain unchanged. It still needs an
+    // original-tree backend; a native-looking band alone is insufficient. Custom
+    // captions still go through their original-tree backend and strict Probe.
+    if ((framework.id == L"qt" || framework.id == L"wpf") && !IsIconic(window) &&
+        (GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION) == WS_CAPTION) {
+        RECT outer{};
+        POINT origin{};
+        if (GetWindowRect(window, &outer) && ClientToScreen(window, &origin) &&
+            origin.y - outer.top >= GetSystemMetricsForDpi(SM_CYCAPTION, GetDpiForWindow(window))) {
+            c.adapterMode = Adapter::Native;
+            c.adapter = framework.name + L" · 原生非客户区 / 进程内绘制";
+            return c;
+        }
+    }
     // Explicit local registrations can add a framework without changing the
     // injector. Their read-only Probe still validates the actual target layout.
     auto registryDirectory = ExecutableDirectory();
@@ -46,7 +62,7 @@ Candidate InspectInline(HWND window) {
         },
         reinterpret_cast<LPARAM>(&ribbon));
     if (c.adapterMode == Adapter::Extended || ribbon || framework.id == L"winui3" || framework.id == L"office-netui" ||
-        framework.id == L"mfc-bcg" || framework.id == L"txgui") {
+        framework.id == L"mfc-bcg" || framework.id == L"txgui" || framework.id == L"avalonia") {
         c.supported = false;
         c.reason = framework.id == L"chromium-views"
                        ? L"当前 Chromium Views 编译版本缺少已验证 ABI profile，原控件布局尚未适配。"

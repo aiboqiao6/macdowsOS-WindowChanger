@@ -1,11 +1,14 @@
 #include "chrome.h"
 #include "nonclient-frame.h"
+#include "caption-colors.h"
+#include "native-style-view.h"
 #include <commctrl.h>
 #include <dwmapi.h>
 #include <uxtheme.h>
 #include <windowsx.h>
 #include <algorithm>
 #include <iterator>
+#include <map>
 #include <new>
 #include <vector>
 
@@ -31,6 +34,9 @@ struct State {
     BOOL originalRendering = TRUE;
     bool refreshing{};
     bool paintQueued{};
+    bool colorReads{};
+    bool capturedPalette{};
+    CaptionColors originalPalette{};
     unsigned systemCommands{};
     int nativeTopBorder{};
     UINT captionPaints{}, clientPaints{}, refreshes{};
@@ -45,6 +51,113 @@ struct Layout {
     UINT dpi = 96;
     int border{};
 };
+// CAPTION_COLOR and TEXT_COLOR are setter-only DWM attributes. Capture the
+// original composed frame before changing rendering instead of treating a
+// failed getter as an application request for the system default. PrintWindow
+// works for an occluded window without sampling another application's pixels.
+bool CapturePalette(HWND window, CaptionColors &palette) {
+    RECT outer{};
+    if (!GetWindowRect(window, &outer) || IsIconic(window))
+        return false;
+    auto dpi = GetDpiForWindow(window);
+    POINT origin{};
+    ClientToScreen(window, &origin);
+    const int top = std::max(0L, origin.x - outer.left);
+    const int height = top + GetSystemMetricsForDpi(SM_CYCAPTION, dpi);
+    const int width = outer.right - outer.left;
+    const int left = top + MulDiv(36, dpi, 96);
+    const int right = width - top - MulDiv(150, dpi, 96);
+    if (width <= 0 || width > 16384 || height <= top + 4 || height > 256 || right <= left)
+        return false;
+    POINT physicalFirst{outer.left, outer.top}, physicalLast{outer.right, outer.top + height};
+    if (!LogicalToPhysicalPointForPerMonitorDPI(window, &physicalFirst) ||
+        !LogicalToPhysicalPointForPerMonitorDPI(window, &physicalLast))
+        return false;
+    struct PhysicalScope {
+        DPI_AWARENESS_CONTEXT previous = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        ~PhysicalScope() {
+            if (previous)
+                SetThreadDpiAwarenessContext(previous);
+        }
+    } physicalScope;
+    RECT band{physicalFirst.x, physicalFirst.y, physicalLast.x, physicalLast.y};
+    bool unobscured = IsWindowVisible(window) != FALSE;
+    bool found = false;
+    for (auto above = GetTopWindow(nullptr); above; above = GetWindow(above, GW_HWNDNEXT)) {
+        if (above == window) {
+            found = true;
+            break;
+        }
+        RECT bounds{}, intersection{};
+        DWORD cloaked{};
+        if (IsWindowVisible(above) && !IsIconic(above) &&
+            SUCCEEDED(DwmGetWindowAttribute(above, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && !cloaked &&
+            GetWindowRect(above, &bounds) && IntersectRect(&intersection, &band, &bounds))
+            unobscured = false;
+    }
+    unobscured = unobscured && found;
+    const bool legacy =
+        GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(window)) == DPI_AWARENESS_UNAWARE;
+    // PrintWindow's legacy path omits DWM's explicit colors on Windows 11.
+    // Only use the actual composed frame for those windows, without moving or
+    // activating them. A covered legacy title is retried when it becomes visible.
+    if (legacy && !unobscured)
+        return false;
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    auto screen = GetDC(nullptr);
+    auto dc = CreateCompatibleDC(screen);
+    void *pixels{};
+    auto bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+    auto old = bitmap && dc ? SelectObject(dc, bitmap) : nullptr;
+    bool captured = false;
+    if (old) {
+        std::fill_n(static_cast<DWORD *>(pixels), size_t(width) * height, 0x00ff00ff);
+        const bool copied =
+            unobscured ? StretchBlt(dc, 0, 0, width, height, screen, band.left, band.top, band.right - band.left,
+                                    band.bottom - band.top, SRCCOPY | CAPTUREBLT) != FALSE
+                       : PrintWindow(window, dc, PW_RENDERFULLCONTENT) != FALSE;
+        if (copied) {
+            GdiFlush();
+            std::map<COLORREF, unsigned> colors;
+            for (int y = top + 2; y < height - 2; ++y)
+                for (int x = left; x < right; ++x) {
+                    auto color = GetPixel(dc, x, y);
+                    if (color != CLR_INVALID && color != RGB(255, 0, 255))
+                        ++colors[color];
+                }
+            auto background = std::max_element(colors.begin(), colors.end(),
+                                               [](const auto &a, const auto &b) { return a.second < b.second; });
+            if (background != colors.end() && background->second > unsigned((right - left) * (height - top - 4) / 2)) {
+                palette = ResolveCaptionColors(false, true, background->first, DWMWA_COLOR_DEFAULT);
+                unsigned count{};
+                for (const auto &[color, frequency] : colors) {
+                    int difference = abs(int(GetRValue(color)) - int(GetRValue(palette.background))) +
+                                     abs(int(GetGValue(color)) - int(GetGValue(palette.background))) +
+                                     abs(int(GetBValue(color)) - int(GetBValue(palette.background)));
+                    if (difference >= 120 && frequency > count) {
+                        palette.foreground = color;
+                        count = frequency;
+                    }
+                }
+                captured = count >= 3;
+            }
+        }
+    }
+    if (old)
+        SelectObject(dc, old);
+    if (bitmap)
+        DeleteObject(bitmap);
+    if (dc)
+        DeleteDC(dc);
+    if (screen)
+        ReleaseDC(nullptr, screen);
+    return captured;
+}
 int Scale(int value, UINT dpi) {
     return MulDiv(value, static_cast<int>(dpi), 96);
 }
@@ -281,14 +394,30 @@ void Paint(HWND window, State *state) {
     bool active = GetForegroundWindow() == GetAncestor(window, GA_ROOT);
     BOOL dark{};
     DwmGetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
-    COLORREF color = dark ? RGB(32, 32, 32) : active ? RGB(244, 243, 241) : RGB(247, 247, 246);
+    TrackedCaptionDarkMode(window, dark);
     COLORREF caption = DWMWA_COLOR_DEFAULT;
-    if (SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_CAPTION_COLOR, &caption, sizeof(caption))) &&
-        caption != DWMWA_COLOR_DEFAULT && caption != DWMWA_COLOR_NONE)
-        color = caption;
-    HBRUSH background = CreateSolidBrush(color);
+    COLORREF textColor = DWMWA_COLOR_DEFAULT;
+    DwmGetWindowAttribute(window, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
+    DwmGetWindowAttribute(window, DWMWA_TEXT_COLOR, &textColor, sizeof(textColor));
+    TrackedCaptionColor(window, DWMWA_CAPTION_COLOR, caption);
+    TrackedCaptionColor(window, DWMWA_TEXT_COLOR, textColor);
+    auto palette = ResolveCaptionColors(dark != FALSE, active, caption, textColor);
+    if (state->capturedPalette && !GetPropW(window, CaptionDarkModeProperty) &&
+        !GetPropW(window, CaptionColorProperties[0])) {
+        palette = state->originalPalette;
+        if (TrackedCaptionColor(window, DWMWA_TEXT_COLOR, textColor))
+            palette.foreground = ResolveCaptionColors(dark != FALSE, active, palette.background, textColor).foreground;
+    }
+    HIGHCONTRASTW contrast{sizeof(contrast)};
+    if (SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
+        (contrast.dwFlags & HCF_HIGHCONTRASTON)) {
+        palette.background = GetSysColor(active ? COLOR_ACTIVECAPTION : COLOR_INACTIVECAPTION);
+        palette.foreground = GetSysColor(active ? COLOR_CAPTIONTEXT : COLOR_INACTIVECAPTIONTEXT);
+        palette.separator = GetSysColor(COLOR_WINDOWFRAME);
+    }
+    HBRUSH background = CreateSolidBrush(palette.background);
     FillRect(dc, &l.window, background);
-    HPEN line = CreatePen(PS_SOLID, 1, dark ? RGB(55, 55, 55) : RGB(218, 217, 215));
+    HPEN line = CreatePen(PS_SOLID, 1, palette.separator);
     HGDIOBJ oldPen = SelectObject(dc, line);
     MoveToEx(dc, l.caption.left, l.caption.bottom - 1, nullptr);
     LineTo(dc, l.caption.right, l.caption.bottom - 1);
@@ -344,7 +473,7 @@ void Paint(HWND window, State *state) {
                              OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     auto oldFont = SelectObject(dc, font);
     SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, dark ? RGB(235, 235, 235) : active ? RGB(58, 57, 55) : RGB(142, 141, 139));
+    SetTextColor(dc, palette.foreground);
     RECT text = l.caption;
     text.left += Scale(90, l.dpi);
     text.right -= Scale(90, l.dpi);
@@ -483,6 +612,10 @@ void RefreshFrame(HWND window) {
 }
 
 void Release(HWND window, State *state, bool destroyed) {
+    COLORREF caption = DWMWA_COLOR_DEFAULT, text = DWMWA_COLOR_DEFAULT;
+    const bool captionChanged = TrackedCaptionColor(window, DWMWA_CAPTION_COLOR, caption);
+    const bool textChanged = TrackedCaptionColor(window, DWMWA_TEXT_COLOR, text);
+    ClearCaptionColors(window);
     RECT client{};
     if (!destroyed)
         GetClientRect(window, &client);
@@ -512,6 +645,14 @@ void Release(HWND window, State *state, bool destroyed) {
         state->frame.Restore(window);
         SynchronizeComposition(window);
     }
+    if (!destroyed && IsWindow(window)) {
+        if (captionChanged)
+            DwmSetWindowAttribute(window, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
+        if (textChanged)
+            DwmSetWindowAttribute(window, DWMWA_TEXT_COLOR, &text, sizeof(text));
+    }
+    if (state->colorReads)
+        style_view::ReleaseReads();
     delete state;
 }
 
@@ -531,9 +672,28 @@ LRESULT CALLBACK WindowSubclass(HWND window, UINT message, WPARAM wParam, LPARAM
         case Metric::Refreshes:
             return state->refreshes;
         case Metric::CaptionTop:
-            return Measure(window, state).caption.top;
-        case Metric::CaptionBottom:
-            return Measure(window, state).caption.bottom;
+        case Metric::CaptionBottom: {
+            RECT outer{};
+            GetWindowRect(window, &outer);
+            POINT origin{outer.left, outer.top};
+            POINT edge = origin;
+            auto caption = Measure(window, state).caption;
+            edge.y += static_cast<Metric>(wParam) == Metric::CaptionTop ? caption.top : caption.bottom;
+            LogicalToPhysicalPointForPerMonitorDPI(window, &origin);
+            LogicalToPhysicalPointForPerMonitorDPI(window, &edge);
+            return edge.y - origin.y;
+        }
+        case Metric::ButtonCenterX:
+        case Metric::ButtonCenterY: {
+            if (lParam < 0 || lParam >= 3)
+                return 0;
+            RECT outer{};
+            GetWindowRect(window, &outer);
+            auto rect = Measure(window, state).buttons[lParam];
+            POINT point{outer.left + (rect.left + rect.right) / 2, outer.top + (rect.top + rect.bottom) / 2};
+            LogicalToPhysicalPointForPerMonitorDPI(window, &point);
+            return static_cast<Metric>(wParam) == Metric::ButtonCenterX ? point.x : point.y;
+        }
         case Metric::AdapterMode:
             return static_cast<LRESULT>(state->adapter);
         }
@@ -559,6 +719,12 @@ LRESULT CALLBACK WindowSubclass(HWND window, UINT message, WPARAM wParam, LPARAM
     if (message == PaintMessage()) {
         state->paintQueued = false;
         Paint(window, state);
+        return 0;
+    }
+    if (message == CaptionColorMessage()) {
+        if (wParam != DWMWA_TEXT_COLOR)
+            state->capturedPalette = false;
+        QueuePaint(window, state);
         return 0;
     }
     if (message == DetachMessage()) {
@@ -733,6 +899,18 @@ LRESULT CALLBACK WindowSubclass(HWND window, UINT message, WPARAM wParam, LPARAM
             return HTCAPTION;
         return original;
     }
+    case WM_GETTITLEBARINFOEX: {
+        auto result = DefSubclassProc(window, message, wParam, lParam);
+        if (Live(window) == state && lParam) {
+            auto *info = reinterpret_cast<TITLEBARINFOEX *>(lParam);
+            if (info->cbSize == sizeof(TITLEBARINFOEX))
+                for (int i = 2; i <= 5; ++i) {
+                    info->rgstate[i] |= STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_UNAVAILABLE | STATE_SYSTEM_OFFSCREEN;
+                    SetRectEmpty(&info->rgrect[i]);
+                }
+        }
+        return result;
+    }
     case WM_NCMOUSEMOVE: {
         POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
         int hover = ButtonAt(window, state, point);
@@ -753,16 +931,21 @@ LRESULT CALLBACK WindowSubclass(HWND window, UINT message, WPARAM wParam, LPARAM
         Paint(window, state);
         return 0;
     case WM_NCLBUTTONDOWN:
+    case WM_NCLBUTTONUP:
     case WM_NCLBUTTONDBLCLK: {
         POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
         int button = ButtonAt(window, state, point);
-        if (button >= 0) {
+        if (button >= 0 && message != WM_NCLBUTTONUP) {
             state->pressed = button;
             SetCapture(window);
             if (auto *live = Live(window))
                 Paint(window, live);
             return 0;
         }
+        // A queued native-button message may outlive the frame transition.
+        // Never forward an old right-side caption hit to the host's handler.
+        if (wParam == HTCLOSE || wParam == HTMINBUTTON || wParam == HTMAXBUTTON || wParam == HTSYSMENU)
+            return 0;
         break;
     }
     case WM_MOUSEMOVE:
@@ -809,6 +992,8 @@ LRESULT CALLBACK WindowSubclass(HWND window, UINT message, WPARAM wParam, LPARAM
     case WM_DPICHANGED:
     case WM_THEMECHANGED:
     case WM_SETTINGCHANGE:
+    case WM_DWMCOLORIZATIONCOLORCHANGED:
+    case WM_DWMCOMPOSITIONCHANGED:
     case WM_ENABLE: {
         // Application code can destroy its own window during these callbacks.
         // Reacquire the subclass data before touching State again.
@@ -873,6 +1058,21 @@ DWORD Attach(HWND window, HWND controller, Adapter adapter) {
         return ERROR_NOT_ENOUGH_MEMORY;
     }
     state->hasCorner = SUCCEEDED(DwmGetWindowAttribute(window, CornerAttribute, &state->corner, sizeof(DWORD)));
+    if (adapter == Adapter::Native)
+        state->capturedPalette = CapturePalette(window, state->originalPalette);
+    if (adapter == Adapter::Native && !state->capturedPalette &&
+        GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(window)) == DPI_AWARENESS_UNAWARE) {
+        CloseHandle(state->controllerProcess);
+        delete state;
+        return ERROR_RETRY;
+    }
+    // PrintWindow can reenter the host. Do not attach to a destroyed/replaced
+    // target or overwrite a lease installed by that callback.
+    if (!IsWindow(window) || GetPropW(window, OwnerProperty)) {
+        CloseHandle(state->controllerProcess);
+        delete state;
+        return ERROR_NOT_SUPPORTED;
+    }
     if (!SetWindowSubclass(window, WindowSubclass, SubclassId, reinterpret_cast<DWORD_PTR>(state))) {
         CloseHandle(state->controllerProcess);
         delete state;
@@ -885,6 +1085,20 @@ DWORD Attach(HWND window, HWND controller, Adapter adapter) {
         return error ? error : ERROR_NOT_ENOUGH_MEMORY;
     }
     SetPropW(window, AdapterProperty, reinterpret_cast<HANDLE>(adapter));
+    COLORREF caption = DWMWA_COLOR_DEFAULT, text = DWMWA_COLOR_DEFAULT;
+    const bool captionRead = SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_CAPTION_COLOR, &caption, sizeof(caption)));
+    const bool textRead = SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_TEXT_COLOR, &text, sizeof(text)));
+    if ((captionRead && !TrackCaptionColor(window, DWMWA_CAPTION_COLOR, caption)) ||
+        (textRead && !TrackCaptionColor(window, DWMWA_TEXT_COLOR, text)) ||
+        !SetPropW(window, CaptionColorOwner, reinterpret_cast<HANDLE>(1))) {
+        Release(window, state, false);
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
+    if (!style_view::AcquireReads()) {
+        Release(window, state, false);
+        return ERROR_NOT_SUPPORTED;
+    }
+    state->colorReads = true;
     DWMNCRENDERINGPOLICY policy = DWMNCRP_DISABLED;
     HRESULT applied = DwmSetWindowAttribute(window, DWMWA_NCRENDERING_POLICY, &policy, sizeof(policy));
     if (FAILED(applied)) {

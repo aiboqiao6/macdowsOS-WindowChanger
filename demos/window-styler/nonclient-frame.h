@@ -14,9 +14,6 @@ class NonclientFrame {
     UINT dpi_ = 96;
     RECT insets_{};
     DWORD corner_{};
-    int width_ = -1, height_ = -1;
-    UINT lastDpi_{};
-    bool maximized_{};
 
   public:
     static UINT StateMessage() {
@@ -65,6 +62,14 @@ class NonclientFrame {
         if (!dpi_)
             dpi_ = 96;
         if (SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, &visible, sizeof(visible)))) {
+            // DWM always returns physical screen coordinates. GetWindowRect
+            // follows the target GUI thread's DPI context; legacy applications
+            // therefore need the DWM rectangle converted before subtraction.
+            POINT first{visible.left, visible.top}, last{visible.right, visible.bottom};
+            if (!PhysicalToLogicalPointForPerMonitorDPI(window, &first) ||
+                !PhysicalToLogicalPointForPerMonitorDPI(window, &last))
+                return false;
+            visible = {first.x, first.y, last.x, last.y};
             insets_ = {std::max(0L, visible.left - outer.left), std::max(0L, visible.top - outer.top),
                        std::max(0L, outer.right - visible.right), std::max(0L, outer.bottom - visible.bottom)};
         }
@@ -118,13 +123,10 @@ class NonclientFrame {
             return true;
         RECT outer{};
         GetWindowRect(window, &outer);
-        int width = outer.right - outer.left, height = outer.bottom - outer.top;
         UINT dpi = GetDpiForWindow(window);
         if (!dpi)
             dpi = 96;
         bool maximized = IsZoomed(window) != FALSE;
-        if (width == width_ && height == height_ && dpi == lastDpi_ && maximized == maximized_)
-            return true;
         auto r = Visible(window);
         int radius =
             maximized || corner_ == DWMWCP_DONOTROUND ? 0 : MulDiv(corner_ == DWMWCP_ROUNDSMALL ? 4 : 8, dpi, 96);
@@ -138,13 +140,18 @@ class NonclientFrame {
             DeleteObject(region);
             return false;
         }
-        // SetWindowRgn reenters the original window procedure. Establish the
-        // dimensions before it, and never transfer a saved HRGN. Do not touch
-        // this object after the call: the host can destroy its HWND inside it.
-        width_ = width;
-        height_ = height;
-        lastDpi_ = dpi;
-        maximized_ = maximized;
+        // Hosts can replace or clear their region on a same-size style/theme
+        // notification. Geometry alone cannot establish that our shape survived.
+        HRGN current = CreateRectRgn(0, 0, 0, 0);
+        bool unchanged = current && GetWindowRgn(window, current) != ERROR && EqualRgn(current, region);
+        if (current)
+            DeleteObject(current);
+        if (unchanged) {
+            DeleteObject(region);
+            return true;
+        }
+        // SetWindowRgn reenters the original window procedure. Never transfer a
+        // saved HRGN or touch this object afterwards: the host may destroy it.
         RECT client{};
         POINT origin{};
         GetClientRect(window, &client);

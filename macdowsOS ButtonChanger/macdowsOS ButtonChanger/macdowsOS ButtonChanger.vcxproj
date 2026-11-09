@@ -188,6 +188,13 @@
     <None Include="..\..\demos\window-styler\verification-v31.md" />
     <None Include="..\..\demos\window-styler\release-v32.md" />
     <None Include="..\..\demos\window-styler\verification-v32.md" />
+    <None Include="..\..\demos\window-styler\release-v33.md" />
+    <None Include="..\..\demos\window-styler\verification-v33.md" />
+    <ClInclude Include="..\..\demos\window-styler\caption-colors.h" />
+    <None Include="..\..\demos\window-styler\caption-policy-tests.cpp" />
+    <None Include="..\..\demos\window-styler\caption-theme-client.cpp" />
+    <None Include="..\..\demos\window-styler\research\collect-software-coverage.ps1" />
+    <None Include="..\..\demos\window-styler\research\summarize-software-coverage.ps1" />
     <None Include="..\..\demos\window-styler\research\verify-auto-all.ps1" />
     <None Include="..\..\demos\window-styler\research\verify-controller.ps1" />
     <None Include="..\..\demos\window-styler\research\verify-controller-matrix.ps1" />
@@ -219,6 +226,23 @@
     <None Include="..\..\demos\window-styler\research\frameworks-v23.md" />
     <None Include="..\..\demos\window-styler\research\frameworks-v24.md" />
     <None Include="..\..\demos\window-styler\research\frameworks-v25.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../demos/window-styler/research/electron-fixture/main.cjs" />
+    <None Include="../../demos/window-styler/research/electron-fixture/package.json" />
+    <None Include="../../demos/window-styler/research/electron-fixture/README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../demos/window-styler/research/avalonia-adapter/CMakeLists.txt" />
+    <None Include="../../demos/window-styler/research/avalonia-adapter/Bridge.csproj" />
+    <None Include="../../demos/window-styler/research/avalonia-adapter/Backend.csproj" />
+    <None Include="../../demos/window-styler/research/avalonia-adapter/bridge.cs" />
+    <None Include="../../demos/window-styler/research/avalonia-adapter/backend.cs" />
+    <None Include="../../demos/window-styler/research/avalonia-adapter/native.cpp" />
+    <None Include="../../demos/window-styler/research/avalonia-adapter/README.md" />
+    <None Include="../../demos/window-styler/research/avalonia-fixture/Fixture.csproj" />
+    <None Include="../../demos/window-styler/research/avalonia-fixture/Program.cs" />
+    <None Include="../../demos/window-styler/research/test-avalonia-inline.ps1" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

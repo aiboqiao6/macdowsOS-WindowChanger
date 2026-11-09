@@ -128,7 +128,7 @@ namespace Macdows.WpfInline {
    public long Metric(int n){
     if(lights==null)return 0;P origin=new P();ClientToScreen(window,ref origin);Point p=lights.PointToScreen(new Point());var scale=source.CompositionTarget.TransformToDevice;
     if(n==6)return adapter;if(n==7)return (long)Math.Round(p.X-origin.x);if(n==8)return (long)Math.Round(p.Y-origin.y);if(n==9)return (long)Math.Round(lights.ActualWidth*scale.M11);if(n==10)return (long)Math.Round(lights.ActualHeight*scale.M22);
-    if(n==11)return (long)Math.Round(title.TranslatePoint(new Point(),(UIElement)source.RootVisual).X*scale.M11);if(n==12)return buttons.IsVisible?1:0;if(n==13)return 3;return 0;
+    if(n==11)return (long)Math.Round(title.TranslatePoint(new Point(),(UIElement)source.RootVisual).X*scale.M11);if(n==12)return buttons.IsVisible?1:0;if(n==13)return 3;if(n==15)return buttons.IsEnabled||buttons.IsHitTestVisible?1:0;return 0;
    }
    public void Disposed(object sender,EventArgs e){Restore();}
    public void Restore(){
@@ -153,6 +153,8 @@ namespace Macdows.WpfInline {
     lease.timer=new DispatcherTimer(DispatcherPriority.Background,source.Dispatcher);lease.timer.Interval=TimeSpan.FromMilliseconds(750);var current=lease;
     lease.timer.Tick+=(s,e)=>{if(!IsWindow(current.owner)||!current.title.IsLoaded||WaitForSingleObject(current.process,0)!=258)current.Restore();};
     lease.saved.Add(new Saved(title,FrameworkElement.MarginProperty));lease.saved.Add(new Saved(buttons,UIElement.VisibilityProperty));
+    lease.saved.Add(new Saved(buttons,UIElement.IsEnabledProperty));lease.saved.Add(new Saved(buttons,UIElement.IsHitTestVisibleProperty));
+    buttons.IsEnabled=false;buttons.IsHitTestVisible=false;
     lease.lights=new Canvas{Width=84,HorizontalAlignment=HorizontalAlignment.Left,VerticalAlignment=VerticalAlignment.Stretch};
     Grid.SetRow(lease.lights,Grid.GetRow(title));Grid.SetColumn(lease.lights,Grid.GetColumn(title));Panel.SetZIndex(lease.lights,1000);
     string[] colors={"#FF5F57","#FFBD2E","#28C840"},names={"关闭窗口","最小化窗口","最大化或还原窗口"};
@@ -165,6 +167,7 @@ namespace Macdows.WpfInline {
     }
     source.Disposed+=lease.Disposed;source.AddHook(lease.Hook);buttons.Visibility=Visibility.Collapsed;var margin=title.Margin;title.Margin=new Thickness(margin.Left+84,margin.Top,margin.Right,margin.Bottom);grid.Children.Add(lease.lights);grid.UpdateLayout();
     lease.saved[0].Watch(v=>{var p=(Thickness)v;return new Thickness(p.Left+84,p.Top,p.Right,p.Bottom);});lease.saved[1].Watch(v=>Visibility.Collapsed);title.Unloaded+=lease.Unloaded;
+    lease.saved[2].Watch(v=>false);lease.saved[3].Watch(v=>false);
     if(!SetProp(lease.window,Owner,lease.owner)||!SetProp(lease.window,Inline,new IntPtr(3))||!SetProp(lease.window,Adapter,new IntPtr(lease.adapter))){lease.Restore();return 5;}
     leases[lease.window]=lease;lease.timer.Start();return 0;
    }catch{if(lease!=null)try{lease.Restore();}catch{}return 50;}

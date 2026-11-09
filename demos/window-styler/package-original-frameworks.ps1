@@ -5,7 +5,7 @@ param(
     [string]$X86BuildDirectory
 )
 $ErrorActionPreference='Stop'
-if (-not $OutputDirectory) { $OutputDirectory=Join-Path $PSScriptRoot 'out\WindowChanger-v32' }
+if (-not $OutputDirectory) { $OutputDirectory=Join-Path $PSScriptRoot 'out\WindowChanger-v33' }
 if (-not $X64BuildDirectory) { $X64BuildDirectory=Join-Path $PSScriptRoot 'out\vs-x64' }
 if (-not $X86BuildDirectory) { $X86BuildDirectory=Join-Path $PSScriptRoot 'out\vs-Win32' }
 $OutputDirectory=[IO.Path]::GetFullPath($OutputDirectory)
@@ -42,7 +42,7 @@ foreach ($architecture in @('x64','Win32')) {
     if (-not $crt) { throw "Missing app-local VC++ redistributable for $architecture." }
     Get-ChildItem -LiteralPath $crt -Filter '*.dll' -File | ForEach-Object { CopyRuntime $_.FullName $destination }
 }
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release-v32.md') -Destination (Join-Path $OutputDirectory 'README.md') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release-v33.md') -Destination (Join-Path $OutputDirectory 'README.md') -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'original-frameworks.md') -Destination $OutputDirectory -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\..\LICENSE.txt') -Destination $OutputDirectory -Force
 [void](New-Item -ItemType Directory -Force -Path (Join-Path $OutputDirectory 'third_party'))

@@ -352,7 +352,7 @@ struct OfficeLease {
                 s->Stop("tree-or-property-changed");
             return 0;
         }
-        if (s->active && (m == WM_DPICHANGED || m == WM_THEMECHANGED || m == WM_SETTINGCHANGE)) {
+        if (s->active && m == WM_DPICHANGED) {
             s->Stop("unsupported-environment-change");
             return DefSubclassProc(w, m, wp, lp);
         }
@@ -405,6 +405,7 @@ struct OfficeLease {
         if (m == WM_CANCELMODE || m == WM_CAPTURECHANGED)
             s->pressed = -1;
         bool layout = m == WM_SIZE || m == WM_WINDOWPOSCHANGING || m == WM_WINDOWPOSCHANGED || m == WM_GETMINMAXINFO ||
+                      m == WM_THEMECHANGED || m == WM_SETTINGCHANGE ||
                       (w == s->window && m == WM_SYSCOMMAND &&
                        ((wp & 0xfff0) == SC_MAXIMIZE || (wp & 0xfff0) == SC_MINIMIZE || (wp & 0xfff0) == SC_RESTORE));
         if (layout && !s->working) {

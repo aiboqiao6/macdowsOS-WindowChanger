@@ -235,9 +235,13 @@ int wmain(int argc, wchar_t **argv) {
         if (check(session.Apply(target, static_cast<styler::Adapter>(272)).ok, "attach before a theme notification")) {
             // Notification only: do not change Windows theme or user settings.
             Send(target, WM_THEMECHANGED);
-            check(Detached(target), "unsupported theme notification safely ends the lease");
-            check(restored() && ReportContains(target, "\"reason\":\"unsupported-environment-change\""),
-                  "theme-notification cleanup restores original state");
+            check(Send(target, styler::QueryMessage()) == styler::Acknowledged && Send(target, Metrics(), 1) == 1,
+                  "same-tree theme notification preserves the active original layout");
+            Send(target, WM_SETTINGCHANGE);
+            check(Send(target, styler::QueryMessage()) == styler::Acknowledged && Send(target, Metrics(), 1) == 1,
+                  "same-tree settings notification preserves original button suppression");
+            session.RestoreAll();
+            check(Detached(target) && restored(), "explicit detach after theme refresh restores original state");
         }
     }
     if (!failures) {

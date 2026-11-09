@@ -2,7 +2,9 @@
 
 当前 MFC/BCG、Office NetUI、TXGui 的已验证有限 ABI profile 已加入主控制器和完整包。TXGui 原树左侧三灯、原 D2D/输入、持续附加及异常恢复已整合；使用和边界见[原树三灯说明](original-frameworks.md)、[v30 验证](research/frameworks-v30.md)。下文 v13…v29 保留为历史过程；未知版本/布局的兼容范围不扩大。
 
-v32 默认自动接管所有受支持窗口，不设软件黑白名单或已测试软件清单；保留 v31 的精简 UI、托盘驻留、单实例、登录后台自启、自动接管持久化与退避。手动还原会暂停全局自动接管，恢复后重新对所有支持窗口尝试。实际 ABI、原布局及所有权检查保持，不强制修改未知版本。[运行说明](release-v32.md) · [本轮验证](verification-v32.md) · [v31 验证](verification-v31.md)。使用 `out/WindowChanger-v32.zip`，保留 `x86` 目录。当前源码仓库为 [macdowsOS-WindowChanger](https://github.com/aiboqiao6/macdowsOS-WindowChanger)。
+v33 默认自动接管所有受支持窗口，不设软件黑白名单；补充原按钮输入禁用、原配色跟踪和旧式 DPI 标题裁剪修复。本机全部软件及亮暗主题验证仍未完成。[运行说明](release-v33.md) · [本轮证据与缺口](verification-v33.md) · [v32 验证](verification-v32.md)。使用 `out/WindowChanger-v33.zip`，保留 `x86` 目录。手动还原仍暂停全局自动接管，重新开启后对所有支持窗口重试；保留实际 ABI、原布局、所有权和撤销检查。源码仓库：[macdowsOS-WindowChanger](https://github.com/aiboqiao6/macdowsOS-WindowChanger)。
+
+v33 新增 Avalonia 11.3.12 / FluentAvalonia 2.5 的 x64 原标题树后端；亮暗主题、原按钮禁用、真鼠标操作和异常恢复在自有窗口验证。XAML 合成窗口继续要求匹配的原树布局，不能仅因存在非客户区标题而使用 GDI 兜底；新增实际客户区像素保持的拒绝测试。微信内嵌 Qt、Picker 及更多业务窗口仍待适配。
 
 通用 Windows 进程内窗口注入 demo。默认请求管理员权限，统一处理 x64/x86、目标 GUI 线程、探测、附加确认、输入和撤销。后端按框架能力和原控件树选择，不按应用名称、路径或产品版本分派。
 

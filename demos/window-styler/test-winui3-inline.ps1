@@ -63,6 +63,16 @@ function Shot($h,$name){
  UI $h|ConvertTo-Json -Depth 5|Set-Content (Join-Path $OutputDirectory ($name+'-uia.json')) -Encoding UTF8
 }
 function Worker($h,$name){return Start-Process (Join-Path $ReleaseDirectory 'StylerTests.exe') -ArgumentList @('--inline-lease-worker',$h.ToInt64()) -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $OutputDirectory ($name+'-worker.log')) -RedirectStandardError (Join-Path $OutputDirectory ($name+'-worker.err'))}
+function StopWorker($process,[string]$phase){
+ $process.Refresh()
+ [ordered]@{id=$process.Id;exited=$process.HasExited;exitCode=$(if($process.HasExited){$process.ExitCode}else{$null});phase=$phase;at=(Get-Date).ToString('o')} | ConvertTo-Json -Compress | Add-Content (Join-Path $OutputDirectory 'worker-stop.jsonl') -Encoding UTF8
+ if($process.HasExited){
+  if($phase.EndsWith('controller-failure')){throw "Worker exited before the controller-failure test: $phase"}
+  return
+ }
+ try{$process.Kill()}catch{$process.Refresh();if(-not $process.HasExited){throw}}
+ if(-not $process.WaitForExit(4000)){throw "Owned worker did not stop: $phase"}
+}
 $foreground=[WinUI3TestNative]::GetForegroundWindow();$cursor=[WinUI3TestNative+P]::new();[void][WinUI3TestNative]::GetCursorPos([ref]$cursor)
 try{
  foreach($layout in @('plain','columns','binding')){
@@ -97,14 +107,14 @@ try{
    [void][WinUI3TestNative]::Send($h,0x8028,3);[void][WinUI3TestNative]::Send($h,0x8028,4);[void][WinUI3TestNative]::Send($h,0x8028,6)
    Shot $h "$layout-host-refresh";[ordered]@{height=[WinUI3TestNative]::Metric($h,10);top=[WinUI3TestNative]::Metric($h,8);scale=$scale}|ConvertTo-Json|Set-Content (Join-Path $OutputDirectory ($layout+'-height.json')) -Encoding UTF8
    Check (Until {[WinUI3TestNative]::Metric($h,10) -eq 28*$scale}) "$layout follows original row-height changes";Shot $h "$layout-host-refresh"
-   $worker.Kill();$worker.WaitForExit();$worker=$null
+   StopWorker $worker ($layout+'-controller-failure');$worker=$null
    Check (Until {[WinUI3TestNative]::GetProp($h,'Macdows.WindowStyler.Owner.v1') -eq [IntPtr]::Zero}) "$layout restores after controller failure"
    $restoredText=TextRect $h $text;Check ([Math]::Abs($restoredText[0]-$beforeText[0]-20*$scale) -lt 2) "$layout restores latest host padding";Shot $h "$layout-restored"
    [void][WinUI3TestNative]::Send($h,0x8028,7);$restoredText=TextRect $h $text;Check ([Math]::Abs($restoredText[0]-$beforeText[0]-40*$scale) -lt 2) "$layout host padding still reacts after detach"
    $worker=Worker $h "$layout-second";Check (Until {[WinUI3TestNative]::Ready($h)}) "$layout attaches again"
    [void][WinUI3TestNative]::Send($h,0x8028,1)
    Check (Until {[WinUI3TestNative]::GetProp($h,'Macdows.WindowStyler.Owner.v1') -eq [IntPtr]::Zero}) "$layout detaches obsolete title tree"
-   $worker.Kill();$worker.WaitForExit();$worker=$null
+   StopWorker $worker ($layout+'-obsolete-tree');$worker=$null
    $worker=Worker $h "$layout-rebuilt";Check (Until {[WinUI3TestNative]::Ready($h)}) "$layout discovers rebuilt title without business names";Shot $h "$layout-rebuilt"
    [WinUI3TestNative]::Click($h,0);Check (Until {-not [WinUI3TestNative]::IsWindow($h)}) "$layout native red closes only fixture"
    Check ($fixture.WaitForExit(4000)) "$layout fixture exits cleanly";Check ($fixture.ExitCode -eq 0) "$layout exit code is zero"

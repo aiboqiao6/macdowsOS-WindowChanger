@@ -20,7 +20,7 @@ struct App {
     c::Grid title{nullptr};
     c::StackPanel buttons{nullptr};
     HWND bridge{}, captionInput{};
-    bool hybrid{}, closing{};
+    bool hybrid{}, nativeCaption{}, closing{};
 };
 void SizeBridge(HWND window, App *app) {
     RECT r{};
@@ -46,9 +46,13 @@ LRESULT CALLBACK CaptionProcedure(HWND w, UINT m, WPARAM wp, LPARAM lp) {
 }
 LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM w, LPARAM l) {
     auto app = reinterpret_cast<App *>(GetWindowLongPtrW(window, GWLP_USERDATA));
-    if (message == WM_NCCALCSIZE)
+    if (message == WM_NCCREATE) {
+        app = static_cast<App *>(reinterpret_cast<CREATESTRUCTW *>(l)->lpCreateParams);
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(app));
+    }
+    if (message == WM_NCCALCSIZE && !(app && app->nativeCaption))
         return 0;
-    if (message == WM_NCHITTEST) {
+    if (message == WM_NCHITTEST && !(app && app->nativeCaption)) {
         POINT p{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
         ScreenToClient(window, &p);
         if (p.y < 4)
@@ -58,15 +62,19 @@ LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM w, LPARAM l) {
     if (message == WM_SIZE && app && app->bridge && w != SIZE_MINIMIZED)
         SizeBridge(window, app);
     if (message == WM_APP + 66 && app) {
-        if (app->hybrid) {
+        if (app->hybrid || app->nativeCaption) {
             auto style = GetWindowLongPtrW(window, GWL_STYLE);
             SetWindowLongPtrW(window, GWL_STYLE, w == 2 ? style & ~WS_SYSMENU : style | WS_SYSMENU);
             SetWindowPos(window, nullptr, 0, 0, 0, 0,
                          SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             app->title.Padding({4, 0, 0, 0});
             SizeBridge(window, app);
-        } else
+        } else {
             app->buttons.Visibility(w == 2 ? x::Visibility::Collapsed : x::Visibility::Visible);
+            for (auto child : app->buttons.Children())
+                if (auto control = child.try_as<c::Control>())
+                    control.IsEnabled(w != 2);
+        }
         return 1;
     }
     if (message == WM_CLOSE && app)
@@ -89,15 +97,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR args, int) {
         cls.hCursor = LoadCursorW(nullptr, IDC_ARROW);
         RegisterClassW(&cls);
         bool hybrid = wcsstr(args, L"--hybrid") != nullptr;
-        const wchar_t *caption =
-            hybrid ? L"XAML / native caption hybrid row" : L"XAML Islands / ordinary semantic title row";
-        HWND window = CreateWindowExW(0, cls.lpszClassName, caption, WS_OVERLAPPEDWINDOW, 180, 180, 1230, 750, nullptr,
-                                      nullptr, instance, nullptr);
-        if (!window)
-            return 2;
         App app;
         app.hybrid = hybrid;
-        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
+        app.nativeCaption = wcsstr(args, L"--native-caption") != nullptr;
+        auto style = WS_OVERLAPPEDWINDOW;
+        if (wcsstr(args, L"--no-system-menu"))
+            style &= ~(WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+        const wchar_t *caption =
+            app.nativeCaption ? L"Native caption / XAML client content"
+            : hybrid ? L"XAML / native caption hybrid row" : L"XAML Islands / ordinary semantic title row";
+        auto exStyle = wcsstr(args, L"--no-redirection") ? WS_EX_NOREDIRECTIONBITMAP : 0;
+        HWND window = CreateWindowExW(exStyle, cls.lpszClassName, caption, style, 180, 180, 1230, 750, nullptr,
+                                      nullptr, instance, &app);
+        if (!window)
+            return 2;
         app.source = x::Hosting::DesktopWindowXamlSource();
         auto native = app.source.as<IDesktopWindowXamlSourceNative>();
         winrt::check_hresult(native->AttachToWindow(window));
@@ -105,7 +118,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR args, int) {
         c::Grid root;
         root.Background(x::Media::SolidColorBrush({255, 36, 38, 43}));
         c::RowDefinition top;
-        top.Height({40, x::GridUnitType::Pixel});
+        top.Height({app.nativeCaption ? 0.0 : 40.0, x::GridUnitType::Pixel});
         root.RowDefinitions().Append(top);
         root.RowDefinitions().Append(c::RowDefinition());
         c::Grid title;
@@ -141,6 +154,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR args, int) {
         }
         title.Children().Append(group);
         root.Children().Append(title);
+        if (app.nativeCaption)
+            title.Visibility(x::Visibility::Collapsed);
         app.title = title;
         app.buttons = group;
         c::TextBlock body;

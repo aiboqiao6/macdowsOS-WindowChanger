@@ -29,7 +29,22 @@ DWORD AttachAdapter(HWND window, HWND owner, UINT_PTR id) {
         // Optional runtime guard happens before loading a toolkit plugin.
         if (!r.qtVersion.empty()) {
             using Version = const char *(*)();
-            auto core = GetModuleHandleW(L"Qt6Core.dll");
+            // Use the exact core named by the registration, including its
+            // debug suffix. Never load another Qt runtime into the host.
+            HMODULE core{};
+            size_t start{};
+            while (start < r.requiredModules.size()) {
+                auto end = r.requiredModules.find(L',', start);
+                if (end == std::wstring::npos)
+                    end = r.requiredModules.size();
+                auto name = r.requiredModules.substr(start, end - start);
+                if (_wcsicmp(name.c_str(), L"Qt6Core.dll") == 0 || _wcsicmp(name.c_str(), L"Qt6Cored.dll") == 0 ||
+                    _wcsicmp(name.c_str(), L"Qt5Core.dll") == 0 || _wcsicmp(name.c_str(), L"Qt5Cored.dll") == 0) {
+                    core = GetModuleHandleW(name.c_str());
+                    break;
+                }
+                start = end + 1;
+            }
             if (!core) {
                 if (automatic)
                     continue;

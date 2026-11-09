@@ -4,7 +4,7 @@
 
 ## 使用
 
-以管理员身份启动完整包根目录的 `WindowStyler.exe`，刷新窗口列表，选择目标并应用；撤销使用控制器的恢复功能。保留旁边的 `x86` 目录，x64 控制器通过它处理 TXGui 的 32 位进程。应用前先还原目标窗口；当前 TXGui profile 不接受从最小化或最大化状态开始附加。
+以管理员身份启动完整包根目录的 `WindowStyler.exe`，默认自动接管检测为支持的窗口，不设软件黑白名单；也可手动选择并应用。撤销会暂停自动接管。保留旁边的 `x86` 目录，x64 控制器通过它处理 TXGui 的 32 位进程。当前 TXGui profile 不接受从最小化或最大化状态开始附加，恢复显示后再尝试。
 
 命令行也可使用 `WindowInjector.exe --apply 0x当前HWND`；可加 `--duration 20` 自动结束。独立命令 `WindowInjector.exe --detach 0x当前HWND` 撤销。控制器退出、owner 消失或控制器异常终止会恢复原布局。
 
@@ -14,7 +14,7 @@
 .\build.ps1 -Configuration Release
 .\build.ps1 -Architecture Win32 -Configuration Release
 .\demos\window-styler\package-original-frameworks.ps1
-# demos/window-styler/out/WindowChanger-original-frameworks-v30/WindowStyler.exe
+# demos/window-styler/out/WindowChanger-v33/WindowStyler.exe
 ```
 
 ## 当前边界
@@ -27,6 +27,6 @@
 
 TXGui 迁移的是三枚原 Button，保留原点击绑定与原 HWND 输入路径；没有直接调用宿主回调。原 D2D 内容阶段画三灯，普通重排处理窗口缩放；定时器只检测所有者/树失效，不跟随布局。关闭按钮不在自动验证中点击，实际关闭或托盘行为沿用宿主原按钮策略。
 
-Debug/Release 引导 DLL 已区分名称，可在不重启目标应用的情况下先后验证；旧的驻留 DLL 不表示仍有活动会话。未知环境改变会安全退出，不承诺跨 DPI、主题切换后的持续兼容。
+Debug/Release 引导 DLL 已区分名称，可在不重启目标应用的情况下先后验证；旧的驻留 DLL 不表示仍有活动会话。v33 允许 Office/TXGui 在原树仍满足契约时处理主题/设置通知并重绘；原树失效或 DPI 改变仍退出恢复。通知刷新测试不等于真实亮暗主题切换验证，不承诺未知皮肤和版本持续兼容。
 
 详细原理、测试结果、失败记录和范围见源码中的 `research/frameworks-v30.md`。

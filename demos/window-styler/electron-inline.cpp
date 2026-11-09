@@ -35,7 +35,8 @@ bool KnownRuntime(HMODULE module) {
     if (!version)
         return false;
     const int major = atoi(version());
-    return major == 13 || major == 15;
+    return major == 13 || major == 15 || strcmp(version(), "14.8.178.28-electron.0") == 0 ||
+           strcmp(version(), "14.2.231.21-electron.0") == 0 || strcmp(version(), "14.2.231.26-electron.0") == 0;
 }
 std::wstring File() {
     HMODULE self{};
@@ -63,7 +64,7 @@ std::string Quote(std::wstring const &s) {
 }
 
 // These exported V8 entry points retain their x64 Local/MaybeLocal ABI in the
-// two tested Electron runtimes. No engine object offsets or code patches.
+// tested Electron runtimes. No engine object offsets or code patches.
 std::string Evaluate(std::string const &code) {
     auto m = Runtime();
     if (!KnownRuntime(m))
@@ -126,7 +127,7 @@ struct State {
     HWND window{}, owner{};
     HANDLE process{};
     UINT_PTR timer{};
-    bool ready{}, failed{}, restoring{}, restored{}, overlay{};
+    bool ready{}, failed{}, restoring{}, restored{}, overlay{}, transitioning{};
     unsigned commands{};
     std::array<int, 6> metrics{};
 };
@@ -188,9 +189,26 @@ LRESULT CALLBACK Subclass(HWND window, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWO
         Release(s);
         return DefSubclassProc(window, m, w, l);
     }
-    if (m == WM_NCHITTEST && s->overlay && s->ready && !s->restoring) {
+    if (m == WM_NCHITTEST && s->overlay && (s->ready || s->transitioning) && !s->restoring) {
         auto hit = DefSubclassProc(window, m, w, l);
         return hit == HTMINBUTTON || hit == HTMAXBUTTON || hit == HTCLOSE ? HTCAPTION : hit;
+    }
+    if (s->overlay && (s->ready || s->transitioning) && !s->restoring) {
+        if ((m == WM_NCLBUTTONDOWN || m == WM_NCLBUTTONUP || m == WM_NCLBUTTONDBLCLK) &&
+            (w == HTMINBUTTON || w == HTMAXBUTTON || w == HTCLOSE))
+            return 0;
+        if (m == WM_GETTITLEBARINFOEX && l) {
+            auto result = DefSubclassProc(window, m, w, l);
+            if (Live(window) == s) {
+                auto info = reinterpret_cast<TITLEBARINFOEX *>(l);
+                if (info->cbSize == sizeof(*info))
+                    for (int i = 2; i <= 5; ++i) {
+                        info->rgstate[i] |= STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_UNAVAILABLE | STATE_SYSTEM_OFFSCREEN;
+                        SetRectEmpty(&info->rgrect[i]);
+                    }
+            }
+            return result;
+        }
     }
     if (m == WM_SYSCOMMAND) {
         ++s->commands;
@@ -228,12 +246,17 @@ ValueN __cdecl Signal(Env env, void *info) {
                     for (int i = 0; i < 6; i++)
                         s->metrics[i] = int(numbers[i + 2]);
                     s->ready = true;
+                    s->transitioning = false;
                 }
                 if (numbers[0] == 2)
                     s->restored = true;
                 if (numbers[0] == 3) {
                     s->failed = true;
                     s->restoring = false;
+                }
+                if (numbers[0] == 4 && !s->restoring) {
+                    s->ready = false;
+                    s->transitioning = true;
                 }
             }
     }

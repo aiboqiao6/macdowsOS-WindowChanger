@@ -36,6 +36,8 @@ FrameworkInfo DetectFramework(HWND window) {
         return {L"mfc", L"MFC", L"CWnd / 原生或自绘非客户区"};
     if (cls == L"TXGuiFoundation")
         return {L"txgui", L"TXGuiFoundation", L"自绘控件树 / 非系统标题布局"};
+    if (cls.starts_with(L"Avalonia-"))
+        return {L"avalonia", L"Avalonia", L"CoreCLR / 原标题树与 FluentAvalonia 公共窗口操作"};
     if (cls.starts_with(L"Chrome_")) {
         DWORD pid{};
         GetWindowThreadProcessId(window, &pid);
@@ -109,8 +111,12 @@ FrameworkInfo DetectFramework(HWND window) {
         }
         if (modules.contains(L"qt6core.dll"))
             return {L"qt", L"Qt 6", L"Qt6Core.dll"};
+        if (modules.contains(L"qt6cored.dll"))
+            return {L"qt", L"Qt 6 (Debug)", L"Qt6Cored.dll"};
         if (modules.contains(L"qt5core.dll"))
             return {L"qt", L"Qt 5", L"Qt5Core.dll"};
+        if (modules.contains(L"qt5cored.dll"))
+            return {L"qt", L"Qt 5 (Debug)", L"Qt5Cored.dll"};
         return {L"unknown", L"Qt 窗口类 / 运行时未确认", L"缺少已加载的 Qt 运行时"};
     }
     if (cls.starts_with(L"Windows.UI.") || cls == L"ApplicationFrameWindow")

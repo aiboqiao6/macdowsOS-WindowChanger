@@ -3,7 +3,10 @@ import QtQuick.Controls
 Rectangle {
     function refreshCaption() {
         tabs.leftPadding = Qt.binding(function() { return tabs.width < 780 ? 6 : 0; });
-        for (let button of commands.children) button.visible = Qt.binding(function() { return tabs.width > 300; });
+        for (let button of commands.children) {
+            button.visible = Qt.binding(function() { return tabs.width > 300; });
+            button.enabled = Qt.binding(function() { return tabs.width > 300; });
+        }
     }
     width: 820; height: 500; color: "#f6f5f3"
     TabBar {
