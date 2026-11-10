@@ -16,6 +16,7 @@
 #include <winrt/Microsoft.UI.Xaml.Automation.h>
 #include <winrt/Microsoft.UI.Content.h>
 #include <winrt/Microsoft.UI.Input.h>
+#include <winrt/Microsoft.UI.Xaml.Input.h>
 #include <winrt/Microsoft.UI.Windowing.h>
 #include <cmath>
 #include <fstream>
@@ -46,6 +47,34 @@ struct App : x::ApplicationT<App> {
     std::unique_ptr<styler::research::winui::NativeIslandFrame> native;
     UINT dpi{};
     unsigned generation{};
+    c::Button editor{nullptr};
+    c::Button action{nullptr};
+    unsigned activations{}, characters{};
+    void Palette(bool clear) {
+        auto bar = w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(hwnd)}).TitleBar();
+        using Color = styler::research::winui::TitlePalette::Color;
+        auto color = [clear](unsigned i) -> Color {
+            if (clear)
+                return nullptr;
+            const winrt::Windows::UI::Color colors[]{{255, 32, 64, 96},    {255, 32, 64, 96},    {255, 255, 255, 255},
+                                                     {255, 64, 96, 128},   {255, 255, 255, 255}, {255, 24, 48, 72},
+                                                     {255, 192, 208, 224}, {255, 16, 32, 48},    {255, 255, 255, 255},
+                                                     {255, 255, 255, 255}, {255, 24, 48, 72},    {255, 192, 208, 224}};
+            return winrt::box_value(colors[i]).as<Color>();
+        };
+        bar.BackgroundColor(color(0));
+        bar.ButtonBackgroundColor(color(1));
+        bar.ButtonForegroundColor(color(2));
+        bar.ButtonHoverBackgroundColor(color(3));
+        bar.ButtonHoverForegroundColor(color(4));
+        bar.ButtonInactiveBackgroundColor(color(5));
+        bar.ButtonInactiveForegroundColor(color(6));
+        bar.ButtonPressedBackgroundColor(color(7));
+        bar.ButtonPressedForegroundColor(color(8));
+        bar.ForegroundColor(color(9));
+        bar.InactiveBackgroundColor(color(10));
+        bar.InactiveForegroundColor(color(11));
+    }
     void Resize() {
         if (!source || IsIconic(hwnd))
             return;
@@ -75,6 +104,23 @@ struct App : x::ApplicationT<App> {
             native.reset();
         }
     }
+    static LRESULT CALLBACK BoundarySize(HWND h, UINT m, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR) {
+        if (m == WM_NCDESTROY) {
+            RemoveWindowSubclass(h, BoundarySize, id);
+            return DefSubclassProc(h, m, wp, lp);
+        }
+        if (m == WM_WINDOWPOSCHANGING && lp) {
+            auto position = reinterpret_cast<WINDOWPOS *>(lp);
+            const auto width = position->cx, height = position->cy;
+            auto result = DefSubclassProc(h, m, wp, lp);
+            if (!(position->flags & SWP_NOSIZE)) {
+                position->cx = width;
+                position->cy = height;
+            }
+            return result;
+        }
+        return DefSubclassProc(h, m, wp, lp);
+    }
     LRESULT ReadMetric(WPARAM index) {
         RECT r{};
         POINT origin{};
@@ -82,6 +128,26 @@ struct App : x::ApplicationT<App> {
         ClientToScreen(reinterpret_cast<HWND>(source.SiteBridge().WindowId().Value), &origin);
         const double scale = double(dpi) / 96;
         auto p = body.TransformToVisual(nullptr).TransformPoint({0, 0});
+        if (index >= 20 && index < 36) {
+            styler::research::winui::TitlePalette values(
+                w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(hwnd)}).TitleBar());
+            if (index < 32) {
+                auto color = values.colors[index - 20];
+                if (!color)
+                    return -1;
+                auto v = color.Value();
+                return (uint32_t(v.A) << 24) | (uint32_t(v.R) << 16) | (uint32_t(v.G) << 8) | v.B;
+            }
+            if (index == 32)
+                return static_cast<int>(values.icon);
+            if (index == 33)
+                return values.height ? static_cast<int>(*values.height) : -1;
+            if (index == 34)
+                return values.theme ? static_cast<int>(*values.theme) : -1;
+            return w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(hwnd)})
+                .TitleBar()
+                .ExtendsContentIntoTitleBar();
+        }
         switch (index) {
         case 1:
             return native && native->active;
@@ -116,6 +182,16 @@ struct App : x::ApplicationT<App> {
             GetWindowRect(reinterpret_cast<HWND>(source.SiteBridge().WindowId().Value), &island);
             return index == 13 ? island.right - island.left : island.bottom - island.top;
         }
+        case 40: {
+            auto focused = x::Input::FocusManager::GetFocusedElement(body.XamlRoot());
+            return focused == editor ? 1 : focused == action ? 2 : 0;
+        }
+        case 41:
+            return characters;
+        case 42:
+            return activations;
+        case 43:
+            return source.HasFocus();
         default:
             return 0;
         }
@@ -145,6 +221,21 @@ struct App : x::ApplicationT<App> {
                     self->Theme(light);
                     self->source.Content(self->body);
                     ++self->generation;
+                } else if (wp == 6) {
+                    winrt::check_bool(self->editor && self->editor.Focus(x::FocusState::Programmatic));
+                } else if (wp == 7)
+                    self->Palette(false);
+                else if (wp == 8)
+                    self->Palette(true);
+                else if (wp == 9 || wp == 11) {
+                    auto bar = w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(h)}).TitleBar();
+                    if (wp == 11)
+                        bar.ExtendsContentIntoTitleBar(true);
+                    bar.IconShowOptions(w::IconShowOptions::HideIconAndSystemMenu);
+                    bar.PreferredHeightOption(w::TitleBarHeightOption::Tall);
+                    bar.PreferredTheme(w::TitleBarTheme::Light);
+                    if (wp == 11)
+                        bar.ExtendsContentIntoTitleBar(false);
                 }
                 return 0;
             }
@@ -222,10 +313,53 @@ struct App : x::ApplicationT<App> {
         content.VerticalAlignment(x::VerticalAlignment::Center);
         c::Grid::SetRow(content, 1);
         body.Children().Append(content);
+        if (wcsstr(GetCommandLineW(), L"--interactive")) {
+            c::StackPanel panel;
+            panel.HorizontalAlignment(x::HorizontalAlignment::Center);
+            panel.VerticalAlignment(x::VerticalAlignment::Center);
+            panel.Spacing(12);
+            panel.Width(320);
+            auto controlTemplate =
+                x::Markup::XamlReader::Load(
+                    L"<ControlTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" "
+                    L"TargetType=\"Button\"><Border Background=\"#FF335577\" Padding=\"12\">"
+                    L"<ContentPresenter Content=\"{TemplateBinding Content}\"/></Border></ControlTemplate>")
+                    .as<c::ControlTemplate>();
+            editor = c::Button();
+            editor.Template(controlTemplate);
+            editor.UseSystemFocusVisuals(false);
+            c::TextBlock inputLabel;
+            inputLabel.Text(L"Owned character-input target");
+            inputLabel.Foreground(x::Media::SolidColorBrush({255, 255, 255, 255}));
+            editor.Content(inputLabel);
+            editor.CharacterReceived([this](auto const &, auto const &args) {
+                if (args.Character() >= L'a' && args.Character() <= L'z') {
+                    ++characters;
+                    args.Handled(true);
+                }
+            });
+            action = c::Button();
+            action.Template(controlTemplate);
+            action.UseSystemFocusVisuals(false);
+            c::TextBlock actionLabel;
+            actionLabel.Text(L"Owned keyboard action");
+            actionLabel.Foreground(x::Media::SolidColorBrush({255, 255, 255, 255}));
+            action.Content(actionLabel);
+            action.Click([this](auto const &, auto const &) { ++activations; });
+            panel.Children().Append(editor);
+            panel.Children().Append(action);
+            c::Grid::SetRow(panel, 1);
+            body.Children().RemoveAtEnd();
+            body.Children().Append(panel);
+        }
         Theme(wcsstr(GetCommandLineW(), L"--light") != nullptr);
         source.Content(body);
         SetPropW(h, L"Macdows.Research.NativeIsland.Owned", reinterpret_cast<HANDLE>(1));
         Resize();
+        // The owned boundary test deliberately allows widths below the native
+        // caption minimum, without changing non-client geometry or capabilities.
+        if (wcsstr(GetCommandLineW(), L"--boundary-sizes"))
+            winrt::check_bool(SetWindowSubclass(h, BoundarySize, 0x4e495342, 0));
         ShowWindow(h, SW_SHOW);
     }
 };

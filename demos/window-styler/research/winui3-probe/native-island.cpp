@@ -49,6 +49,8 @@ x::Hosting::DesktopWindowXamlSource NativeSource(HWND h) {
     RECT client{};
     POINT origin{};
     GetClientRect(h, &client);
+    if (client.right < MulDiv(84, GetDpiForWindow(h), 96) || client.bottom <= 0)
+        return nullptr;
     ClientToScreen(h, &origin);
     x::Hosting::DesktopWindowXamlSource result{nullptr};
     unsigned matches{};
@@ -246,7 +248,7 @@ int wmain(int argc, wchar_t **argv) {
             exit = ERROR_NOT_SUPPORTED;
         else {
             const auto deadline = GetTickCount64() + duration * 1000;
-            while (GetTickCount64() < deadline && IsWindow(h)) {
+            while (GetTickCount64() < deadline && IsWindow(h) && session.Owns(h)) {
                 MsgWaitForMultipleObjects(0, nullptr, FALSE, 50, QS_ALLINPUT);
                 MSG m{};
                 while (PeekMessageW(&m, nullptr, 0, 0, PM_REMOVE)) {

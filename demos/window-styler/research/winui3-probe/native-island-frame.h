@@ -53,16 +53,38 @@ struct TitlePalette {
         if (auto value = bar.try_as<w::IAppWindowTitleBar3>())
             theme = value.PreferredTheme();
     }
+    void PreserveHostChanges(TitlePalette const &current, TitlePalette const &applied) {
+        for (size_t i = 0; i != colors.size(); ++i) {
+            auto same =
+                (!current.colors[i] && !applied.colors[i]) ||
+                (current.colors[i] && applied.colors[i] && current.colors[i].Value() == applied.colors[i].Value());
+            if (!same)
+                colors[i] = current.colors[i];
+        }
+        if (current.icon != applied.icon)
+            icon = current.icon;
+        if (current.height != applied.height)
+            height = current.height;
+        if (current.theme != applied.theme)
+            theme = current.theme;
+    }
     void Restore(w::AppWindowTitleBar const &bar) const {
         bar.ResetToDefault();
         // Unchanged defaults need no setter; height/icon setters can require
         // an extended title bar even when their default is already restored.
+        const bool optionsChanged = bar.IconShowOptions() != icon ||
+                                    (height && bar.PreferredHeightOption() != *height) ||
+                                    (theme && bar.PreferredTheme() != *theme);
+        if (optionsChanged)
+            bar.ExtendsContentIntoTitleBar(true);
         if (bar.IconShowOptions() != icon)
             bar.IconShowOptions(icon);
         if (height && bar.PreferredHeightOption() != *height)
             bar.PreferredHeightOption(*height);
         if (theme && bar.PreferredTheme() != *theme)
             bar.PreferredTheme(*theme);
+        if (optionsChanged)
+            bar.ExtendsContentIntoTitleBar(false);
         if (colors[0])
             bar.BackgroundColor(colors[0]);
         if (colors[1])
@@ -106,12 +128,12 @@ struct NativeIslandFrame {
     winrt::Windows::Foundation::IInspectable originalRow{nullptr};
     c::RowDefinition captionRow{nullptr};
     w::AppWindow window{nullptr};
-    std::optional<TitlePalette> palette;
+    std::optional<TitlePalette> palette, appliedPalette;
     const char *restoreStage{"inactive"};
     w::OverlappedPresenter presenter{nullptr};
     input::InputNonClientPointerSource pointer{nullptr};
     std::vector<RectInt32> caption, passthrough;
-    bool active{}, changing{}, preserveRoot{}, separateTitle{}, invalid{};
+    bool active{}, changing{}, preserveRoot{}, separateTitle{}, invalid{}, restoring{};
     LONG delta{}, normalDelta{};
     UINT dpi{};
 
@@ -176,6 +198,10 @@ struct NativeIslandFrame {
             return;
         RECT r{};
         GetClientRect(hwnd, &r);
+        if (active && separateTitle && (r.right < MulDiv(84, dpi, 96) || r.bottom <= normalDelta)) {
+            invalid = true;
+            winrt::throw_hresult(E_BOUNDS);
+        }
         if (active && !changing) {
             // Maximized overlapped windows retain the resize border outside
             // the visible client. It is not additional title-row space.
@@ -249,6 +275,13 @@ struct NativeIslandFrame {
     void Restore() {
         if (!active)
             return;
+        // Capture changes once, before our rollback setters run. In particular,
+        // a host can clear a previously non-null color while we are attached.
+        if (!restoring) {
+            if (appliedPalette)
+                palette->PreserveHostChanges(TitlePalette(window.TitleBar()), *appliedPalette);
+            restoring = true;
+        }
         changing = true;
         restoreStage = "unwatch";
         Unwatch();
@@ -349,12 +382,16 @@ struct NativeIslandFrame {
         RECT before{}, after{};
         POINT originBefore{}, originAfter{};
         GetClientRect(hwnd, &before);
+        if (separateTitle && (before.right < MulDiv(84, dpi, 96) || before.bottom <= 0))
+            winrt::throw_hresult(E_BOUNDS);
         ClientToScreen(hwnd, &originBefore);
         auto a = pointer.GetRegionRects(input::NonClientRegionKind::Caption);
         auto b = pointer.GetRegionRects(input::NonClientRegionKind::Passthrough);
         caption.assign(a.begin(), a.end());
         passthrough.assign(b.begin(), b.end());
         changing = true;
+        restoring = false;
+        appliedPalette.reset();
         // Let the real composition client grow upward through the public
         // presenter API, then reserve precisely that gained space in XAML.
         active = true;
@@ -413,6 +450,9 @@ struct NativeIslandFrame {
                 button.Template(buttonTemplate);
                 button.MinWidth(0);
                 button.MinHeight(0);
+                // Native caption buttons do not take the document's tab focus.
+                button.IsTabStop(false);
+                button.AllowFocusOnInteraction(false);
                 button.Width(20);
                 button.Height(24);
                 button.HorizontalAlignment(x::HorizontalAlignment::Left);
@@ -457,6 +497,7 @@ struct NativeIslandFrame {
                     backgroundProperty, [this](auto const &, auto const &) { RefreshTheme(); });
                 watchingBackground = true;
             }
+            appliedPalette.emplace(window.TitleBar());
             changing = false;
         } catch (...) {
             Restore();

@@ -10,7 +10,9 @@ NativeIslandFrame 还保留了包裹原根和修改原根 Margin 两种对照模
 
 最大化时扣除不可见缩放边框对应的标题空间。标题拖动与三灯输入区域通过 InputNonClientPointerSource 设置，保存并恢复原区域。前置原生输入过滤器禁用旧非客户区按钮鼠标消息，标题栏查询报告旧按钮隐藏、不可用、离屏且矩形为空。新三灯仍走原 HWND 的系统命令，执行前检查原窗口能力。
 
-标题跟随原根的 ActualTheme 和 Background 属性变化，撤销时注销观察回调。撤销先关闭自建标题岛屿，恢复 presenter 的边框和标题，调用 TitleBar.ResetToDefault 恢复原生标题绘制，再恢复保存的非空配色及有差异的图标、标题高度和主题属性，最后恢复原输入区域和岛屿位置。原区域为空时使用 ClearRegionRects。最小化时保留原岛屿 viewport 尺寸，仅恢复位置；不更改系统或应用主题。
+标题跟随原根的 ActualTheme 和 Background 属性变化，撤销时注销观察回调。三灯不进入 Tab 顺序，点击不获取原内容的键盘焦点。客户区宽度少于 84 DIP 时拒绝附加；附加后宽度不足或高度无法容纳标题时自动撤销。当前 144 DPI 边界是 126 原生像素。
+
+撤销开始时按值比较接管结束时的标题属性，合并宿主后来更新的配色、图标、标题高度和主题，包括把非空配色清为 null；恢复失败重试时不重复采样自身恢复过程。随后关闭自建标题岛屿，恢复 presenter 的边框和标题，调用 TitleBar.ResetToDefault 恢复原生标题绘制，再恢复非空配色及有差异的选项。非默认选项需要临时进入扩展标题模式才可设置，设置后取消扩展。最后恢复原输入区域和岛屿位置。原区域为空时使用 ClearRegionRects。最小化时保留原岛屿 viewport 尺寸，仅恢复位置；不更改系统或应用主题。
 
 研究控制器限时运行，owner 进程消失或宿主替换原 Content 后自动撤销。恢复失败不返回成功，不删除仍需恢复的会话，保留定时器重试。初始化期间遇到释放或窗口销毁时延后清理，避免 Apply 调用栈中的 frame 被重入删除；恢复期间也阻止重复释放。宿主替换的新 Content 不会被旧根覆盖。
 
@@ -23,12 +25,15 @@ NativeIslandFrame 还保留了包裹原根和修改原根 Margin 两种对照模
 & (Get-DevelopmentTool cmake) --build ./demos/window-styler/out/framework-probe-x64 --config Release --target WinUI3NativeIslandFixture WinUI3NativeIslandHost --parallel
 & ./demos/window-styler/research/winui3-probe/test-native-island.ps1 -TitleIsland
 & ./demos/window-styler/research/winui3-probe/test-native-island-lease.ps1
+& ./demos/window-styler/research/winui3-probe/test-native-island-boundaries.ps1
 ~~~
 
-Debug 时同时指定两个脚本对应的 Debug fixture/host 目录和独立 OutputDirectory。第一个脚本在自有深浅色窗口中验证几何、正文像素、原标题文字和配色恢复、标题主题、旧按钮禁用、缩放、最大化和三灯真实点击。第二个脚本通过外部研究控制器验证正常退出、控制器进程异常退出、最小化时控制器退出、根节点替换、宿主关闭和应用内部主题切换。它们只关闭自己创建的 fixture，异常退出测试只终止自己创建并校验路径的研究控制器。
+Debug 时指定各脚本对应的 Debug FixtureDirectory、HostDirectory（第一个脚本不需要 HostDirectory）和独立 OutputDirectory。UI 测试串行运行。第一个脚本在自有深浅色窗口中验证几何、正文像素、原标题文字和配色恢复、标题主题、旧按钮禁用、缩放、最大化和三灯真实点击。第二个脚本通过外部研究控制器验证正常退出、控制器进程异常退出、最小化时控制器退出、根节点替换、宿主关闭和应用内部主题切换。
+
+第三个脚本通过外部研究控制器执行 107 项边界检查，也可指定 -Scenario narrow、keyboard 或 palette。--boundary-sizes 自有窗口仅放开 WM_WINDOWPOSCHANGING 的最小尺寸约束，不改非客户区计算和原按钮能力，以实际到达 125/126px 边界。--interactive 使用显式模板的 XAML Button 接收 CharacterReceived，检查实际字符输入、Tab/Shift+Tab、Enter 及绿灯点击后的焦点；这不是 TextBox、文本编辑或输入法验证。标题属性测试检查 12 项颜色、清空与更新、图标/高度/主题，并把撤销后的完整窗口 PNG 与独立未注入窗口逐字节比较。脚本不裁剪或屏蔽差异。所有脚本只关闭自己创建的 fixture，异常退出测试只终止自己创建并校验路径的研究控制器。
 
 真实窗口的研究入口为该独立目录中的 WinUI3NativeIslandHost.exe，参数为 HWND 和 3 至 30 秒持续时间。该命令会实际修改目标窗口；不能把一次 Probe 或会话成功当成完整适配验证。软件库存、实际窗口截图及私有测试只保留在忽略的 out。
 
 ## 验证边界
 
-全机软件、多岛屿、全部 DPI、跨屏、实际应用的完整深浅主题矩阵、键盘焦点、宿主重建、窄窗口及宿主在接管期间改写标题属性仍需分别验证；初始化泵消息期间的销毁也尚未做确定性故障注入。有限空白窗口测试不能替代有文档或编辑状态的软件验证，也不应据此启用正式通用 WinUI 后端。详细结果与失败记录见 [v36 验证记录](../../verification-v36.md)。
+全机软件、多岛屿、全部 DPI、跨屏、实际应用的完整深浅主题矩阵、文本编辑与输入法、宿主重建和更多动态标题行为仍需分别验证；初始化泵消息期间的销毁也尚未做确定性故障注入。自有窗口的窄宽度、焦点及标题属性测试不能替代实际应用的文档或编辑状态验证，也不足以启用正式通用 WinUI 后端。详细结果与失败记录见 [v37 验证记录](../../verification-v37.md)，此前实验见 [v36](../../verification-v36.md)。
