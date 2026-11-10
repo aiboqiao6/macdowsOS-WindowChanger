@@ -18,9 +18,12 @@ struct NativeLease {
     UINT_PTR timer{};
     bool attaching{true}, releaseRequested{}, releasing{}, destroyed{};
     HRESULT restoreError{};
+    UINT closeMessage{};
+    WPARAM closeWP{};
+    LPARAM closeLP{};
     std::unique_ptr<NativeFrame> frame;
 };
-void NativeRecoveryLog(NativeLease *s, HRESULT error) noexcept {
+void NativeRecoveryLog(NativeLease *s, HRESULT error, const char *phase = "restore") noexcept {
     try {
         HMODULE module{};
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -30,7 +33,7 @@ void NativeRecoveryLog(NativeLease *s, HRESULT error) noexcept {
         auto file = L"native-island-recovery-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
                     std::to_wstring(reinterpret_cast<UINT_PTR>(s->target)) + L".txt";
         std::ofstream log(std::filesystem::path(path).parent_path() / file, std::ios::app);
-        log << "stage=" << s->frame->restoreStage << " HRESULT=" << std::hex << error << '\n';
+        log << "phase=" << phase << " stage=" << s->frame->restoreStage << " HRESULT=" << std::hex << error << '\n';
     } catch (...) {
     }
 }
@@ -77,7 +80,7 @@ x::Hosting::DesktopWindowXamlSource NativeSource(HWND h) {
 bool NativeRelease(NativeLease *s, bool destroying = false) {
     // Public XAML operations can pump messages. Never delete the frame while
     // Apply is on the stack, including a nested WM_NCDESTROY.
-    if (s->attaching) {
+    if (s->attaching || (s->frame && s->frame->operationDepth)) {
         s->releaseRequested = true;
         s->destroyed |= destroying;
         return false;
@@ -104,6 +107,9 @@ bool NativeRelease(NativeLease *s, bool destroying = false) {
                 return false;
             }
         }
+    // Release WinRT references while the lease still rejects nested Query
+    // and defers close input. Their destructors can pump the GUI thread.
+    s->frame.reset();
     RemoveWindowSubclass(s->target, NativeProcedure, ResearchSubclass);
     if (s->timer)
         KillTimer(s->target, s->timer);
@@ -112,14 +118,27 @@ bool NativeRelease(NativeLease *s, bool destroying = false) {
     RemovePropW(s->target, styler::AdapterProperty);
     if (s->process)
         CloseHandle(s->process);
+    auto target = s->target;
+    auto closeMessage = s->destroyed || destroying ? 0 : s->closeMessage;
+    auto closeWP = s->closeWP;
+    auto closeLP = s->closeLP;
     delete s;
+    if (closeMessage && IsWindow(target))
+        PostMessageW(target, closeMessage, closeWP, closeLP);
     return true;
 }
 LRESULT CALLBACK NativeProcedure(HWND h, UINT m, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR data) {
     auto s = reinterpret_cast<NativeLease *>(data);
+    if (NativeFrame::IsClose(m, wp)) {
+        s->closeMessage = m;
+        s->closeWP = wp;
+        s->closeLP = lp;
+        NativeRelease(s);
+        return 0;
+    }
     if (m == styler::QueryMessage())
-        return !s->attaching && !s->releasing && s->frame->active && !s->frame->changing && !s->frame->invalid &&
-                       s->frame->OwnsSource()
+        return !s->attaching && !s->releasing && !s->frame->operationDepth && s->frame->active && !s->frame->changing &&
+                       !s->frame->invalid && s->frame->OwnsSource()
                    ? styler::Acknowledged
                    : 0;
     if (m == styler::DetachMessage()) {
@@ -132,11 +151,11 @@ LRESULT CALLBACK NativeProcedure(HWND h, UINT m, WPARAM wp, LPARAM lp, UINT_PTR,
         return DefSubclassProc(h, m, wp, lp);
     }
     if (m == WM_TIMER && wp == s->timer) {
-        if (s->attaching || s->releasing)
+        if (s->attaching || s->releasing || s->frame->operationDepth)
             return 0;
         try {
-            if (!IsWindow(s->owner) || WaitForSingleObject(s->process, 0) != WAIT_TIMEOUT || s->frame->invalid ||
-                !s->frame->OwnsSource())
+            if (s->releaseRequested || s->closeMessage || !IsWindow(s->owner) ||
+                WaitForSingleObject(s->process, 0) != WAIT_TIMEOUT || s->frame->invalid || !s->frame->OwnsSource())
                 NativeRelease(s);
             else
                 s->frame->UpdateCapabilities();
@@ -156,7 +175,7 @@ LRESULT CALLBACK NativeProcedure(HWND h, UINT m, WPARAM wp, LPARAM lp, UINT_PTR,
         return result;
     }
     auto result = DefSubclassProc(h, m, wp, lp);
-    if (NativeLive(h) == s && !s->attaching && !s->releasing && !s->frame->changing &&
+    if (NativeLive(h) == s && !s->attaching && !s->releasing && !s->frame->operationDepth && !s->frame->changing &&
         (m == WM_SIZE || m == WM_THEMECHANGED || m == WM_DPICHANGED))
         try {
             if (GetDpiForWindow(h) != 144 || !s->frame->OwnsSource())
@@ -195,13 +214,14 @@ extern "C" __declspec(dllexport) DWORD WINAPI MacdowsAdapterAttachV1(const style
     auto state = s.release();
     try {
         state->frame = std::make_unique<NativeFrame>(state->target, NativeSource(state->target), false, true);
+        NativeFrame::Operation operation(*state->frame);
         if (!SetWindowSubclass(state->target, NativeProcedure, ResearchSubclass, reinterpret_cast<DWORD_PTR>(state)))
             winrt::throw_last_error();
         state->timer = SetTimer(state->target, reinterpret_cast<UINT_PTR>(state), 500, nullptr);
         if (!state->timer)
             winrt::throw_last_error();
         state->frame->Apply();
-        if (state->releaseRequested || state->destroyed || !IsWindow(state->target))
+        if (state->releaseRequested || state->destroyed || !IsWindow(state->target) || !state->frame->OwnsSource())
             winrt::throw_hresult(E_ABORT);
         if (!SetPropW(state->target, styler::OwnerProperty, state->owner) ||
             !SetPropW(state->target, styler::AdapterProperty, reinterpret_cast<HANDLE>(context->adapterId)) ||
@@ -210,6 +230,8 @@ extern "C" __declspec(dllexport) DWORD WINAPI MacdowsAdapterAttachV1(const style
         state->attaching = false;
         return 0;
     } catch (...) {
+        if (state->frame)
+            NativeRecoveryLog(state, winrt::to_hresult(), "attach");
         state->attaching = false;
         NativeRelease(state, state->destroyed);
         return ERROR_NOT_SUPPORTED;
@@ -244,9 +266,16 @@ int wmain(int argc, wchar_t **argv) {
         styler::Session session(owner);
         auto result = session.Apply(h, static_cast<styler::Adapter>(288));
         std::cout << "attached=" << result.ok << '\n';
-        if (!result.ok)
+        if (!result.ok) {
+            const auto size =
+                WideCharToMultiByte(CP_UTF8, 0, result.message.data(), static_cast<int>(result.message.size()), nullptr,
+                                    0, nullptr, nullptr);
+            std::string detail(size, '\0');
+            WideCharToMultiByte(CP_UTF8, 0, result.message.data(), static_cast<int>(result.message.size()),
+                                detail.data(), size, nullptr, nullptr);
+            std::cerr << "attach-detail=" << detail << '\n';
             exit = ERROR_NOT_SUPPORTED;
-        else {
+        } else {
             const auto deadline = GetTickCount64() + duration * 1000;
             while (GetTickCount64() < deadline && IsWindow(h) && session.Owns(h)) {
                 MsgWaitForMultipleObjects(0, nullptr, FALSE, 50, QS_ALLINPUT);

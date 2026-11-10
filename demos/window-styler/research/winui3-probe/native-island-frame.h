@@ -134,8 +134,29 @@ struct NativeIslandFrame {
     input::InputNonClientPointerSource pointer{nullptr};
     std::vector<RectInt32> caption, passthrough;
     bool active{}, changing{}, preserveRoot{}, separateTitle{}, invalid{}, restoring{};
+    UINT closeMessage{};
+    WPARAM closeWP{};
+    LPARAM closeLP{};
+    unsigned operationDepth{};
     LONG delta{}, normalDelta{};
     UINT dpi{};
+    struct Operation {
+        NativeIslandFrame &frame;
+        explicit Operation(NativeIslandFrame &value) : frame(value) {
+            ++frame.operationDepth;
+        }
+        ~Operation() {
+            // A public XAML call can reenter WM_CLOSE. Let that call unwind
+            // before the host closes its island; never pump the close again
+            // while a nested Apply/Restore still has framework calls in flight.
+            if (--frame.operationDepth == 0 && frame.closeMessage && IsWindow(frame.hwnd) &&
+                PostMessageW(frame.hwnd, frame.closeMessage, frame.closeWP, frame.closeLP))
+                frame.closeMessage = 0;
+        }
+    };
+    static bool IsClose(UINT message, WPARAM wp) {
+        return message == WM_CLOSE || (message == WM_SYSCOMMAND && (wp & 0xfff0) == SC_CLOSE);
+    }
 
     NativeIslandFrame(HWND target, x::Hosting::DesktopWindowXamlSource const &island, bool keepRoot = false,
                       bool ownTitle = false)
@@ -146,7 +167,8 @@ struct NativeIslandFrame {
         pointer = input::InputNonClientPointerSource::GetForWindowId(window.Id());
         dpi = GetDpiForWindow(hwnd);
     }
-    bool OwnsSource() const {
+    bool OwnsSource() {
+        Operation operation(*this);
         try {
             return source.Content() == (preserveRoot || separateTitle ? body : frame) &&
                    (!separateTitle || (titleSource && titleSource.Content() == frame));
@@ -180,9 +202,15 @@ struct NativeIslandFrame {
         RemoveWindowSubclass(hwnd, CaptionFilter, 0x4e49534c);
     }
     static LRESULT CALLBACK CaptionFilter(HWND h, UINT m, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR data) {
-        // AppWindow's native input layer sits before the host WndProc. Install
-        // this only after the public title/region operations have completed.
+        // Public framework calls can pump host input. Replay the original
+        // close only after the outermost call has returned.
         auto self = reinterpret_cast<NativeIslandFrame *>(data);
+        if (self && self->operationDepth && IsClose(m, wp)) {
+            self->closeMessage = m;
+            self->closeWP = wp;
+            self->closeLP = lp;
+            return 0;
+        }
         // Do not expose the transient caption-sized viewport to the host.
         // The separate-title experiment keeps its original island size.
         if (self && self->changing && m == WM_SIZE)
@@ -194,6 +222,7 @@ struct NativeIslandFrame {
     }
 
     void Resize() {
+        Operation operation(*this);
         if (!source || IsIconic(hwnd))
             return;
         RECT r{};
@@ -227,6 +256,7 @@ struct NativeIslandFrame {
                                std::vector<RectInt32>{{0, 0, MulDiv(84, dpi, 96), delta}});
     }
     void UpdateTheme() {
+        Operation operation(*this);
         if (!frame)
             return;
         frame.RequestedTheme(body.ActualTheme());
@@ -243,6 +273,7 @@ struct NativeIslandFrame {
                                                                : winrt::Windows::UI::Color{255, 32, 32, 32}));
     }
     void RefreshTheme() {
+        Operation operation(*this);
         if (active && !changing)
             try {
                 UpdateTheme();
@@ -268,6 +299,7 @@ struct NativeIslandFrame {
         return flags != UINT(-1) && !(flags & (MF_DISABLED | MF_GRAYED));
     }
     void UpdateCapabilities() {
+        Operation operation(*this);
         for (int i = 0; i != 3; ++i)
             if (buttons[i])
                 buttons[i].IsEnabled(CanExecute(i));
@@ -275,6 +307,7 @@ struct NativeIslandFrame {
     void Restore() {
         if (!active)
             return;
+        Operation operation(*this);
         // Capture changes once, before our rollback setters run. In particular,
         // a host can clear a previously non-null color while we are attached.
         if (!restoring) {
@@ -358,6 +391,7 @@ struct NativeIslandFrame {
         RemoveWindowSubclass(hwnd, CaptionFilter, 0x4e49534c);
     }
     void Apply() {
+        Operation operation(*this);
         if (active || source.Content() != body || !presenter.HasBorder() || !presenter.HasTitleBar() ||
             window.TitleBar().ExtendsContentIntoTitleBar() || body.GetBindingExpression(c::Grid::RowProperty()))
             winrt::throw_hresult(E_UNEXPECTED);
@@ -396,6 +430,8 @@ struct NativeIslandFrame {
         // presenter API, then reserve precisely that gained space in XAML.
         active = true;
         try {
+            if (!SetWindowSubclass(hwnd, CaptionFilter, 0x4e49534c, reinterpret_cast<DWORD_PTR>(this)))
+                winrt::throw_last_error();
             frame = c::Grid();
             UpdateTheme();
             captionRow = c::RowDefinition();
@@ -418,8 +454,6 @@ struct NativeIslandFrame {
                 frame.Children().Append(body);
                 source.Content(frame);
             }
-            if (!SetWindowSubclass(hwnd, CaptionFilter, 0x4e49534c, reinterpret_cast<DWORD_PTR>(this)))
-                winrt::throw_last_error();
             window.TitleBar().ExtendsContentIntoTitleBar(true);
             presenter.SetBorderAndTitleBar(true, false);
             GetClientRect(hwnd, &after);

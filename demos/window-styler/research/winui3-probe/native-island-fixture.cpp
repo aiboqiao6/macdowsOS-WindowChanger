@@ -50,6 +50,71 @@ struct App : x::ApplicationT<App> {
     c::Button editor{nullptr};
     c::Button action{nullptr};
     unsigned activations{}, characters{};
+    unsigned initializationFault{}, initializationFaults{};
+    bool faultBeforeLease{};
+    LRESULT faultDetachResult{};
+    bool cancelNextClose{};
+    unsigned cancelledCloses{};
+    void ReplaceRoot() {
+        auto light = body.ActualTheme() == x::ElementTheme::Light;
+        body = c::Grid();
+        Theme(light);
+        source.Content(body);
+        ++generation;
+    }
+    static LRESULT CALLBACK InitializationFault(HWND h, UINT m, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR data) {
+        auto self = reinterpret_cast<App *>(data);
+        if (m == WM_NCDESTROY) {
+            RemoveWindowSubclass(h, InitializationFault, id);
+            return DefSubclassProc(h, m, wp, lp);
+        }
+        try {
+            if (self->initializationFault && m == WM_WINDOWPOSCHANGING &&
+                w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(h)})
+                    .TitleBar()
+                    .ExtendsContentIntoTitleBar()) {
+                const auto mode = self->initializationFault;
+                self->initializationFault = 0;
+                RemoveWindowSubclass(h, InitializationFault, id);
+                ++self->initializationFaults;
+                self->faultBeforeLease = GetPropW(h, L"Macdows.WindowStyler.Owner.v1") == nullptr;
+                // This callback executes inside the public title-mode setter on
+                // Apply's stack, before the external adapter publishes its lease.
+                wchar_t path[32768]{};
+                GetModuleFileNameW(nullptr, path, 32768);
+                std::wstring file(path);
+                file.resize(file.find_last_of(L'\\') + 1);
+                std::ofstream log(file + L"native-island-initialization-" + std::to_wstring(GetCurrentProcessId()) +
+                                      L".txt",
+                                  std::ios::app);
+                log << "mode=" << mode << " beforeLease=" << self->faultBeforeLease << '\n';
+                log.flush();
+                try {
+                    if (mode == 12)
+                        self->ReplaceRoot();
+                    else if (mode == 13 || mode == 18)
+                        SendMessageW(h, WM_CLOSE, 0, 0);
+                    else if (mode == 17)
+                        SendMessageW(h, WM_SYSCOMMAND, SC_CLOSE, 0);
+                    else if (mode == 14) {
+                        auto owner = GetPropW(h, L"Macdows.WindowStyler.Request.v1");
+                        self->faultDetachResult =
+                            SendMessageW(h, RegisterWindowMessageW(L"Macdows.WindowStyler.Detach.v1"),
+                                         reinterpret_cast<WPARAM>(owner), 0);
+                    }
+                    log << "completed=1 aliveAfterCallback=" << IsWindow(h)
+                        << " detachResult=" << self->faultDetachResult << '\n';
+                } catch (...) {
+                    log << "HRESULT=" << std::hex << winrt::to_hresult() << '\n';
+                }
+                if (!IsWindow(h))
+                    return 0;
+            }
+        } catch (...) {
+            Failure("initialization-fault", winrt::to_hresult());
+        }
+        return DefSubclassProc(h, m, wp, lp);
+    }
     void Palette(bool clear) {
         auto bar = w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(hwnd)}).TitleBar();
         using Color = styler::research::winui::TitlePalette::Color;
@@ -192,6 +257,14 @@ struct App : x::ApplicationT<App> {
             return activations;
         case 43:
             return source.HasFocus();
+        case 44:
+            return initializationFaults;
+        case 45:
+            return faultBeforeLease;
+        case 46:
+            return faultDetachResult;
+        case 47:
+            return cancelledCloses;
         default:
             return 0;
         }
@@ -215,13 +288,9 @@ struct App : x::ApplicationT<App> {
                     self->Theme(true);
                 else if (wp == 4)
                     self->Theme(false);
-                else if (wp == 5) {
-                    auto light = self->body.ActualTheme() == x::ElementTheme::Light;
-                    self->body = c::Grid();
-                    self->Theme(light);
-                    self->source.Content(self->body);
-                    ++self->generation;
-                } else if (wp == 6) {
+                else if (wp == 5)
+                    self->ReplaceRoot();
+                else if (wp == 6) {
                     winrt::check_bool(self->editor && self->editor.Focus(x::FocusState::Programmatic));
                 } else if (wp == 7)
                     self->Palette(false);
@@ -236,6 +305,19 @@ struct App : x::ApplicationT<App> {
                     bar.PreferredTheme(w::TitleBarTheme::Light);
                     if (wp == 11)
                         bar.ExtendsContentIntoTitleBar(false);
+                } else if ((wp >= 12 && wp <= 14) || wp == 17 || wp == 18) {
+                    self->initializationFault = static_cast<unsigned>(wp);
+                    self->cancelNextClose = wp == 18;
+                    winrt::check_bool(
+                        SetWindowSubclass(h, InitializationFault, 0x4e495346, reinterpret_cast<DWORD_PTR>(self)));
+                } else if (wp == 15) {
+                    auto bar = w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(h)}).TitleBar();
+                    bar.ExtendsContentIntoTitleBar(true);
+                    bar.ExtendsContentIntoTitleBar(false);
+                } else if (wp == 16) {
+                    auto window = w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(h)});
+                    auto token = window.Closing([](auto const &, auto const &) {});
+                    window.Closing(token);
                 }
                 return 0;
             }
@@ -257,6 +339,11 @@ struct App : x::ApplicationT<App> {
                 (m == WM_NCLBUTTONDOWN || m == WM_NCLBUTTONUP || m == WM_NCLBUTTONDBLCLK))
                 return 0;
             if (m == WM_CLOSE) {
+                if (self->cancelNextClose) {
+                    self->cancelNextClose = false;
+                    ++self->cancelledCloses;
+                    return 0;
+                }
                 self->Restore();
                 self->source.Close();
                 self->source = nullptr;
