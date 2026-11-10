@@ -28,11 +28,17 @@ NativeIslandFrame 还保留了包裹原根和修改原根 Margin 两种对照模
 & ./demos/window-styler/research/winui3-probe/test-native-island.ps1 -TitleIsland
 & ./demos/window-styler/research/winui3-probe/test-native-island-lease.ps1
 & ./demos/window-styler/research/winui3-probe/test-native-island-boundaries.ps1
+& ./demos/window-styler/research/winui3-probe/test-native-island-initialization.ps1
+& ./demos/window-styler/research/winui3-probe/test-native-island-text.ps1
 ~~~
 
 Debug 时指定各脚本对应的 Debug FixtureDirectory、HostDirectory（第一个脚本不需要 HostDirectory）和独立 OutputDirectory。UI 测试串行运行。第一个脚本在自有深浅色窗口中验证几何、正文像素、原标题文字和配色恢复、标题主题、旧按钮禁用、缩放、最大化和三灯真实点击。第二个脚本通过外部研究控制器验证正常退出、控制器进程异常退出、最小化时控制器退出、根节点替换、宿主关闭和应用内部主题切换。
 
 第三个脚本通过外部研究控制器执行 107 项边界检查，也可指定 -Scenario narrow、keyboard 或 palette。--boundary-sizes 自有窗口仅放开 WM_WINDOWPOSCHANGING 的最小尺寸约束，不改非客户区计算和原按钮能力，以实际到达 125/126px 边界。--interactive 使用显式模板的 XAML Button 接收 CharacterReceived，检查实际字符输入、Tab/Shift+Tab、Enter 及绿灯点击后的焦点；这不是 TextBox、文本编辑或输入法验证。标题属性测试检查 12 项颜色、清空与更新、图标/高度/主题，并把撤销后的完整窗口 PNG 与独立未注入窗口逐字节比较。脚本不裁剪或屏蔽差异。所有脚本只关闭自己创建的 fixture，异常退出测试只终止自己创建并校验路径的研究控制器。
+
+第五个脚本使用 --text-editor 的标准 WinUI TextBox，未替换其默认模板；fixture 提供 IXamlMetadataProvider 和 XamlControlsResources。通过真实 SendInput 验证全文及选区替换、Delete/Backspace、多行、Unicode 字符、Tab/Shift+Tab、Enter，以及跨附加/撤销的 Ctrl+Z/Ctrl+Y。脚本比较文本、选区、焦点、CanUndo/CanRedo、TextChanged 和 Loaded/Unloaded 次数；深浅主题各执行正常撤销和控制器异常退出，共四种场景，每种先运行一个独立且从未注入的原生对照窗口。
+
+没有编辑的接管/撤销要求完整窗口 PNG 与原图一致。有编辑、最大化和主题切换的事务要求最终完整 PNG 与执行同样编辑、原生最大化/还原及主题切换的原生对照一致；不裁剪、遮罩或放宽像素比较。标准 TextBox 的圆角边缘在原生主题/尺寸循环后也可能重新栅格化，因此保留最初图像，但不把它冒充完成该循环后的原生参考。每种场景还要求原 TextBox 始终只加载一次、从未卸载。输入使用正确扫描码和扩展导航键标志，不更改键盘布局或剪贴板；Unicode SendInput 不等于 IME 组合输入验证。输出目录已有 checks.json 或 result.json 时拒绝覆盖。
 
 真实窗口的研究入口为该独立目录中的 WinUI3NativeIslandHost.exe，参数为 HWND 和 3 至 30 秒持续时间。该命令会实际修改目标窗口；不能把一次 Probe 或会话成功当成完整适配验证。软件库存、实际窗口截图及私有测试只保留在忽略的 out。
 
@@ -40,4 +46,4 @@ Debug 时指定各脚本对应的 Debug FixtureDirectory、HostDirectory（第�
 
 test-native-island-initialization.ps1 在自有窗口的标题模式 setter 回调内、租约属性发布前，确定性触发根替换、嵌套撤销、WM_CLOSE、SC_CLOSE 和取消关闭，共 97 项检查。包含正常退出码、回调返回时 HWND 存活、临时岛屿清理、属性及几何恢复、新根保留和再次接管；取消关闭及嵌套撤销还比较完整窗口 PNG。它不模拟直接 DestroyWindow、任意线程强制销毁或框架调用自身失败。
 
-全机软件、多岛屿、全部 DPI、跨屏、实际应用的完整深浅主题矩阵、文本编辑与输入法、宿主重建和更多动态标题行为仍需分别验证。自有窗口的初始化、窄宽度、焦点及标题属性测试不能替代实际应用的文档或编辑状态验证，也不足以启用正式通用 WinUI 后端。详细结果与失败记录见 [v38 验证记录](../../verification-v38.md)，此前实验见 [v37](../../verification-v37.md) 和 [v36](../../verification-v36.md)。
+全机软件、多岛屿、全部 DPI、跨屏、实际应用的完整深浅主题矩阵、真实文档编辑与 IME、宿主重建和更多动态标题行为仍需分别验证。标准 TextBox 的自有窗口测试不能替代实际应用的完整编辑状态验证，也不足以启用正式通用 WinUI 后端。本机只有一块 144 DPI 显示器，本轮未改变系统缩放或任何已有应用的主题。详细结果与失败记录见 [v39 验证记录](../../verification-v39.md)，此前实验见 [v38](../../verification-v38.md)、[v37](../../verification-v37.md) 和 [v36](../../verification-v36.md)。

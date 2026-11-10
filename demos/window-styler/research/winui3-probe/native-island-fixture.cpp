@@ -13,6 +13,7 @@
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <winrt/Microsoft.UI.Xaml.Shapes.h>
 #include <winrt/Microsoft.UI.Xaml.Markup.h>
+#include <winrt/Microsoft.UI.Xaml.XamlTypeInfo.h>
 #include <winrt/Microsoft.UI.Xaml.Automation.h>
 #include <winrt/Microsoft.UI.Content.h>
 #include <winrt/Microsoft.UI.Input.h>
@@ -28,19 +29,43 @@ namespace w = winrt::Microsoft::UI::Windowing;
 namespace input = winrt::Microsoft::UI::Input;
 using winrt::Windows::Graphics::RectInt32;
 constexpr UINT Command = WM_APP + 73, Metric = WM_APP + 74;
-void Failure(const char *stage, HRESULT hr) {
+void Failure(const char *stage, HRESULT hr, winrt::hstring const &message = {}) {
     wchar_t path[32768]{};
     GetModuleFileNameW(nullptr, path, 32768);
     std::wstring file(path);
     file.resize(file.find_last_of(L'\\') + 1);
     std::ofstream log(file + L"native-island-error-" + std::to_wstring(GetCurrentProcessId()) + L".txt", std::ios::app);
     log << stage << " HRESULT=" << std::hex << hr << '\n';
+    if (!message.empty())
+        log << winrt::to_string(message) << '\n';
 }
 
 #include "native-island-frame.h"
 #include <memory>
 
-struct App : x::ApplicationT<App> {
+struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
+    x::Markup::IXamlMetadataProvider metadata{nullptr};
+    x::Markup::IXamlMetadataProvider Provider() {
+        if (!metadata)
+            metadata = x::XamlTypeInfo::XamlControlsXamlMetaDataProvider();
+        return metadata;
+    }
+    x::Markup::IXamlType GetXamlType(winrt::Windows::UI::Xaml::Interop::TypeName const &type) {
+        return wcsstr(GetCommandLineW(), L"--text-editor") ? Provider().GetXamlType(type) : nullptr;
+    }
+    x::Markup::IXamlType GetXamlType(winrt::hstring const &name) {
+        return wcsstr(GetCommandLineW(), L"--text-editor") ? Provider().GetXamlType(name) : nullptr;
+    }
+    winrt::com_array<x::Markup::XmlnsDefinition> GetXmlnsDefinitions() {
+        if (!wcsstr(GetCommandLineW(), L"--text-editor"))
+            return {};
+        return Provider().GetXmlnsDefinitions();
+    }
+    App() {
+        UnhandledException([](auto const &, x::UnhandledExceptionEventArgs const &args) {
+            Failure("unhandled-xaml", args.Exception());
+        });
+    }
     HWND hwnd{};
     x::Hosting::DesktopWindowXamlSource source{nullptr};
     c::Grid body{nullptr};
@@ -49,6 +74,8 @@ struct App : x::ApplicationT<App> {
     unsigned generation{};
     c::Button editor{nullptr};
     c::Button action{nullptr};
+    c::TextBox document{nullptr};
+    unsigned documentLoads{}, documentUnloads{}, documentChanges{};
     unsigned activations{}, characters{};
     unsigned initializationFault{}, initializationFaults{};
     bool faultBeforeLease{};
@@ -155,6 +182,12 @@ struct App : x::ApplicationT<App> {
         body.RequestedTheme(light ? x::ElementTheme::Light : x::ElementTheme::Dark);
         body.Background(x::Media::SolidColorBrush(light ? winrt::Windows::UI::Color{255, 243, 243, 243}
                                                         : winrt::Windows::UI::Color{255, 32, 32, 32}));
+        if (document) {
+            document.Foreground(x::Media::SolidColorBrush(light ? winrt::Windows::UI::Color{255, 16, 16, 16}
+                                                                : winrt::Windows::UI::Color{255, 240, 240, 240}));
+            document.Background(x::Media::SolidColorBrush(light ? winrt::Windows::UI::Color{255, 255, 255, 255}
+                                                                : winrt::Windows::UI::Color{255, 48, 48, 48}));
+        }
     }
     void Apply() {
         if (!native)
@@ -187,6 +220,10 @@ struct App : x::ApplicationT<App> {
         return DefSubclassProc(h, m, wp, lp);
     }
     LRESULT ReadMetric(WPARAM index) {
+        if (index >= 0x1000 && document) {
+            auto text = document.Text();
+            return index - 0x1000 < text.size() ? text[index - 0x1000] : -1;
+        }
         RECT r{};
         POINT origin{};
         GetClientRect(hwnd, &r);
@@ -265,6 +302,30 @@ struct App : x::ApplicationT<App> {
             return faultDetachResult;
         case 47:
             return cancelledCloses;
+        case 50:
+            return document && x::Input::FocusManager::GetFocusedElement(body.XamlRoot()) == document;
+        case 51:
+            return document ? document.Text().size() : -1;
+        case 52:
+            return document ? document.SelectionStart() : -1;
+        case 53:
+            return document ? document.SelectionLength() : -1;
+        case 54:
+            return documentLoads;
+        case 55:
+            return documentUnloads;
+        case 56:
+            return documentChanges;
+        case 57:
+            return document ? std::lround(document.ActualWidth() * scale) : -1;
+        case 58:
+            return document ? std::lround(document.ActualHeight() * scale) : -1;
+        case 59:
+            return document && document.CanUndo();
+        case 60:
+            return document && document.CanRedo();
+        case 61:
+            return document ? static_cast<int>(document.ActualTheme()) : -1;
         default:
             return 0;
         }
@@ -318,6 +379,8 @@ struct App : x::ApplicationT<App> {
                     auto window = w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(h)});
                     auto token = window.Closing([](auto const &, auto const &) {});
                     window.Closing(token);
+                } else if (wp == 21) {
+                    winrt::check_bool(self->document && self->document.Focus(x::FocusState::Programmatic));
                 }
                 return 0;
             }
@@ -362,6 +425,9 @@ struct App : x::ApplicationT<App> {
     void OnLaunched(x::LaunchActivatedEventArgs const &) {
         try {
             Launch();
+        } catch (winrt::hresult_error const &error) {
+            Failure("launch", error.code(), error.message());
+            Exit();
         } catch (...) {
             Failure("launch", winrt::to_hresult());
             Exit();
@@ -400,7 +466,11 @@ struct App : x::ApplicationT<App> {
         content.VerticalAlignment(x::VerticalAlignment::Center);
         c::Grid::SetRow(content, 1);
         body.Children().Append(content);
-        if (wcsstr(GetCommandLineW(), L"--interactive")) {
+        if (wcsstr(GetCommandLineW(), L"--text-editor")) {
+            source.Content(body);
+            Resources().MergedDictionaries().Append(c::XamlControlsResources());
+        }
+        if (wcsstr(GetCommandLineW(), L"--interactive") || wcsstr(GetCommandLineW(), L"--text-editor")) {
             c::StackPanel panel;
             panel.HorizontalAlignment(x::HorizontalAlignment::Center);
             panel.VerticalAlignment(x::VerticalAlignment::Center);
@@ -433,14 +503,30 @@ struct App : x::ApplicationT<App> {
             actionLabel.Foreground(x::Media::SolidColorBrush({255, 255, 255, 255}));
             action.Content(actionLabel);
             action.Click([this](auto const &, auto const &) { ++activations; });
-            panel.Children().Append(editor);
+            if (wcsstr(GetCommandLineW(), L"--text-editor")) {
+                panel.Width(480);
+                document = c::TextBox();
+                document.UseSystemFocusVisuals(false);
+                document.Height(160);
+                document.FontSize(18);
+                document.AcceptsReturn(true);
+                document.TextWrapping(x::TextWrapping::Wrap);
+                document.IsSpellCheckEnabled(false);
+                document.Text(L"Original document");
+                document.Loaded([this](auto const &, auto const &) { ++documentLoads; });
+                document.Unloaded([this](auto const &, auto const &) { ++documentUnloads; });
+                document.TextChanged([this](auto const &, auto const &) { ++documentChanges; });
+                panel.Children().Append(document);
+            } else
+                panel.Children().Append(editor);
             panel.Children().Append(action);
             c::Grid::SetRow(panel, 1);
             body.Children().RemoveAtEnd();
             body.Children().Append(panel);
         }
         Theme(wcsstr(GetCommandLineW(), L"--light") != nullptr);
-        source.Content(body);
+        if (!source.Content())
+            source.Content(body);
         SetPropW(h, L"Macdows.Research.NativeIsland.Owned", reinterpret_cast<HANDLE>(1));
         Resize();
         // The owned boundary test deliberately allows widths below the native

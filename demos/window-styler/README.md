@@ -4,7 +4,7 @@
 
 v34 增加匹配原标题树的 Office 编辑窗口路径，空白 Word、Excel 的持续接管、工具栏避让、原按钮隐藏禁用、窄窗口保护和异常恢复已验证，起始页保留原路径。正式引导版本也包含原树后端修订，避免使用旧安装目录中的后端。[运行说明](release-v34.md) · [验证范围与缺口](verification-v34.md)。最新打包目录为 `out/WindowChanger-v34`，保留 `x86` 目录。
 
-后续 WinUI 研究增加了独立 XAML 标题岛屿实验，用于保留真实应用原正文的尺寸和屏幕位置；v37 补上窄窗口保护、原内容键盘焦点和宿主标题属性更新的恢复验证，v38 修复初始化和关闭期间的重入，关闭前先撤销接管并保留宿主取消关闭的语义。它仍在独立研究目录中，不在正式包或自动接管注册表内。[实验说明](research/winui3-probe/native-island.md) · [最新验证记录](verification-v38.md)。
+后续 WinUI 研究增加了独立 XAML 标题岛屿实验，用于保留真实应用原正文的尺寸和屏幕位置；v38 修复初始化和关闭期间的重入，v39 增加标准 TextBox 的真实编辑、选区、撤销/重做、主题切换及异常恢复验证，并与未注入的原生窗口对照。它仍在独立研究目录中，不在正式包或自动接管注册表内。[实验说明](research/winui3-probe/native-island.md) · [最新验证记录](verification-v39.md)。
 
 默认自动接管所有受支持窗口，不设软件黑白名单。本机全部软件及亮暗主题验证仍未完成。手动还原仍暂停全局自动接管，重新开启后对所有支持窗口重试；保留实际 ABI、原布局、所有权和撤销检查。源码仓库：[macdowsOS-WindowChanger](https://github.com/aiboqiao6/macdowsOS-WindowChanger)。v33 的原配色跟踪和旧式 DPI 裁剪修复见[历史证据与缺口](verification-v33.md)。
 
