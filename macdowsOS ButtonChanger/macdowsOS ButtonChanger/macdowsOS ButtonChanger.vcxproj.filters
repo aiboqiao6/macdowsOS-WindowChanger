@@ -606,5 +606,12 @@
   <ItemGroup>
     <None Include="../../demos/window-styler/research/winui3-probe/title-read.cpp"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/research/winui3-probe/title-read.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/winui3-probe/native-island-fixture.cpp"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/winui3-probe/native-island-frame.h"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/winui3-probe/native-island.cpp"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/winui3-probe/test-native-island.ps1"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/winui3-probe/test-native-island-lease.ps1"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/winui3-probe/native-island.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/verification-v36.md"><Filter>框架研究</Filter></None>
   </ItemGroup>
 </Project>

@@ -251,6 +251,13 @@
   <ItemGroup>
     <None Include="../../demos/window-styler/research/winui3-probe/title-read.cpp" />
     <None Include="../../demos/window-styler/research/winui3-probe/title-read.md" />
+    <None Include="../../demos/window-styler/research/winui3-probe/native-island-fixture.cpp" />
+    <None Include="../../demos/window-styler/research/winui3-probe/native-island-frame.h" />
+    <None Include="../../demos/window-styler/research/winui3-probe/native-island.cpp" />
+    <None Include="../../demos/window-styler/research/winui3-probe/test-native-island.ps1" />
+    <None Include="../../demos/window-styler/research/winui3-probe/test-native-island-lease.ps1" />
+    <None Include="../../demos/window-styler/research/winui3-probe/native-island.md" />
+    <None Include="../../demos/window-styler/verification-v36.md" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

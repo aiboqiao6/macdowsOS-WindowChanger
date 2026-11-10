@@ -4,6 +4,8 @@
 
 v34 增加匹配原标题树的 Office 编辑窗口路径，空白 Word、Excel 的持续接管、工具栏避让、原按钮隐藏禁用、窄窗口保护和异常恢复已验证，起始页保留原路径。正式引导版本也包含原树后端修订，避免使用旧安装目录中的后端。[运行说明](release-v34.md) · [验证范围与缺口](verification-v34.md)。最新打包目录为 `out/WindowChanger-v34`，保留 `x86` 目录。
 
+后续 WinUI 研究增加了独立 XAML 标题岛屿实验，用于保留真实应用原正文的尺寸和屏幕位置；它仍在独立研究目录中，不在正式包或自动接管注册表内。[实验说明](research/winui3-probe/native-island.md) · [最新验证记录](verification-v36.md)。
+
 默认自动接管所有受支持窗口，不设软件黑白名单。本机全部软件及亮暗主题验证仍未完成。手动还原仍暂停全局自动接管，重新开启后对所有支持窗口重试；保留实际 ABI、原布局、所有权和撤销检查。源码仓库：[macdowsOS-WindowChanger](https://github.com/aiboqiao6/macdowsOS-WindowChanger)。v33 的原配色跟踪和旧式 DPI 裁剪修复见[历史证据与缺口](verification-v33.md)。
 
 v33 新增 Avalonia 11.3.12 / FluentAvalonia 2.5 的 x64 原标题树后端；亮暗主题、原按钮禁用、真鼠标操作和异常恢复在自有窗口验证。XAML 合成窗口继续要求匹配的原树布局，不能仅因存在非客户区标题而使用 GDI 兜底；新增实际客户区像素保持的拒绝测试。微信内嵌 Qt、Picker 及更多业务窗口仍待适配。

@@ -1,0 +1,34 @@
+# 独立 WinUI 标题岛屿实验
+
+这是独立研究程序，正式注册表和运行包不引用它。它不按应用名称、路径或软件名单选择目标；研究注册表要求精确 Microsoft.UI.Xaml CodeView，进程内还要求 144 DPI、LTR、正常窗口、原生标题、唯一且完整填满客户区的 XAML 岛屿。记事本的多个岛屿不满足条件。ABI、源窗口或布局不匹配时拒绝。
+
+## 布局与恢复
+
+原生 GDI 兜底不能可靠绘制到真实 WinUI 合成窗口。这个实验通过公共 AppWindow/OverlappedPresenter API 保留边框并移除原生标题，再在新获得的客户区顶部创建独立 DesktopWindowXamlSource，使用真实 XAML Button 绘制三灯。原岛屿只改变相对于客户区的位置，维持原尺寸和屏幕位置；正式实验不改写、包裹或卸载原 Content，不修改其 Margin 或 Row。
+
+NativeIslandFrame 还保留了包裹原根和修改原根 Margin 两种对照模式，仅供复现失败实验。WinUI3NativeIslandHost 始终使用独立标题岛屿模式；两个对照模式不能作为实际画图适配方案。
+
+最大化时扣除不可见缩放边框对应的标题空间。标题拖动与三灯输入区域通过 InputNonClientPointerSource 设置，保存并恢复原区域。前置原生输入过滤器禁用旧非客户区按钮鼠标消息，标题栏查询报告旧按钮隐藏、不可用、离屏且矩形为空。新三灯仍走原 HWND 的系统命令，执行前检查原窗口能力。
+
+标题跟随原根的 ActualTheme 和 Background 属性变化，撤销时注销观察回调。撤销先关闭自建标题岛屿，恢复 presenter 的边框和标题，调用 TitleBar.ResetToDefault 恢复原生标题绘制，再恢复保存的非空配色及有差异的图标、标题高度和主题属性，最后恢复原输入区域和岛屿位置。原区域为空时使用 ClearRegionRects。最小化时保留原岛屿 viewport 尺寸，仅恢复位置；不更改系统或应用主题。
+
+研究控制器限时运行，owner 进程消失或宿主替换原 Content 后自动撤销。恢复失败不返回成功，不删除仍需恢复的会话，保留定时器重试。初始化期间遇到释放或窗口销毁时延后清理，避免 Apply 调用栈中的 frame 被重入删除；恢复期间也阻止重复释放。宿主替换的新 Content 不会被旧根覆盖。
+
+## 构建与自有窗口验证
+
+使用已准备好 out/winui3-sdk 的 x64 research/framework-probe 构建目录：
+
+~~~powershell
+. ./demos/window-styler/development-tools.ps1
+& (Get-DevelopmentTool cmake) --build ./demos/window-styler/out/framework-probe-x64 --config Release --target WinUI3NativeIslandFixture WinUI3NativeIslandHost --parallel
+& ./demos/window-styler/research/winui3-probe/test-native-island.ps1 -TitleIsland
+& ./demos/window-styler/research/winui3-probe/test-native-island-lease.ps1
+~~~
+
+Debug 时同时指定两个脚本对应的 Debug fixture/host 目录和独立 OutputDirectory。第一个脚本在自有深浅色窗口中验证几何、正文像素、原标题文字和配色恢复、标题主题、旧按钮禁用、缩放、最大化和三灯真实点击。第二个脚本通过外部研究控制器验证正常退出、控制器进程异常退出、最小化时控制器退出、根节点替换、宿主关闭和应用内部主题切换。它们只关闭自己创建的 fixture，异常退出测试只终止自己创建并校验路径的研究控制器。
+
+真实窗口的研究入口为该独立目录中的 WinUI3NativeIslandHost.exe，参数为 HWND 和 3 至 30 秒持续时间。该命令会实际修改目标窗口；不能把一次 Probe 或会话成功当成完整适配验证。软件库存、实际窗口截图及私有测试只保留在忽略的 out。
+
+## 验证边界
+
+全机软件、多岛屿、全部 DPI、跨屏、实际应用的完整深浅主题矩阵、键盘焦点、宿主重建、窄窗口及宿主在接管期间改写标题属性仍需分别验证；初始化泵消息期间的销毁也尚未做确定性故障注入。有限空白窗口测试不能替代有文档或编辑状态的软件验证，也不应据此启用正式通用 WinUI 后端。详细结果与失败记录见 [v36 验证记录](../../verification-v36.md)。
