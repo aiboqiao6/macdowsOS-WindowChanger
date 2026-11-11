@@ -6,9 +6,13 @@ param(
 $ErrorActionPreference='Stop'
 $fixturePath=Join-Path (Resolve-Path -LiteralPath $FixtureDirectory).Path 'WinUI3NativeIslandFixture.exe'
 $hostPath=Join-Path (Resolve-Path -LiteralPath $HostDirectory).Path 'WinUI3NativeIslandHost.exe'
+if(Test-Path -LiteralPath $OutputDirectory){throw 'Use a new output directory to preserve earlier evidence'}
 [void](New-Item -ItemType Directory -Path $OutputDirectory -Force)
 $OutputDirectory=(Resolve-Path -LiteralPath $OutputDirectory).Path
 Add-Type -AssemblyName System.Drawing
+. (Join-Path $PSScriptRoot 'capture-guard.ps1')
+. (Join-Path $PSScriptRoot 'capture-backdrop.ps1')
+. (Join-Path $PSScriptRoot 'host-readiness.ps1')
 Add-Type @'
 using System;using System.Runtime.InteropServices;
 public static class NativeIslandLeaseContract {
@@ -55,8 +59,10 @@ function Send($handle,[int]$operation){
 }
 function TitlePixel($handle,[string]$name){
  [void][NativeIslandLeaseContract]::SetForegroundWindow($handle)
+ [NativeIslandCaptureBackdrop]::Place($handle)
  Start-Sleep -Milliseconds 700
  $g=[NativeIslandLeaseContract]::Geometry($handle)
+ [WindowStylerCaptureGuard]::Check($handle,$g[0],$g[1],($g[2]-$g[0]),($g[3]-$g[1]))
  $b=[Drawing.Bitmap]::new(($g[2]-$g[0]),($g[3]-$g[1]))
  $d=[Drawing.Graphics]::FromImage($b)
  try{
@@ -84,8 +90,8 @@ try{
   $worker.StartInfo.Arguments=$h.ToInt64().ToString()+' '+$(if($crash){'30'}else{'4'})
   $worker.StartInfo.UseShellExecute=$false;$worker.StartInfo.CreateNoWindow=$true
   $worker.StartInfo.RedirectStandardOutput=$true;$worker.StartInfo.RedirectStandardError=$true
-  [void]$worker.Start();$stdout=$worker.StandardOutput.ReadToEndAsync();$stderr=$worker.StandardError.ReadToEndAsync()
-  Check (Until {(Owner $h) -ne [IntPtr]::Zero}) ($scenario+' attached')
+  [void]$worker.Start();$hostOutput=[NativeIslandHostOutput]::new($worker.StandardOutput);$stdout=$hostOutput.Completion;$stderr=$worker.StandardError.ReadToEndAsync()
+  Check (Until {$hostOutput.IsReady -and (Owner $h) -ne [IntPtr]::Zero}) ($scenario+' attached after verification host confirms Session Apply')
   Check ((Metric $h 10) -eq 0) ($scenario+' original presenter caption removed')
   Check ((Metric $h 9) -eq 1) ($scenario+' original content root remains installed')
   if($scenario -eq 'normal'){
@@ -131,8 +137,8 @@ try{
  $worker.StartInfo.Arguments=$h.ToInt64().ToString()+' 30'
  $worker.StartInfo.UseShellExecute=$false;$worker.StartInfo.CreateNoWindow=$true
  $worker.StartInfo.RedirectStandardOutput=$true;$worker.StartInfo.RedirectStandardError=$true
- [void]$worker.Start();$stdout=$worker.StandardOutput.ReadToEndAsync();$stderr=$worker.StandardError.ReadToEndAsync()
- Check (Until {(Owner $h) -ne [IntPtr]::Zero}) 'fixture-close attached'
+ [void]$worker.Start();$hostOutput=[NativeIslandHostOutput]::new($worker.StandardOutput);$stdout=$hostOutput.Completion;$stderr=$worker.StandardError.ReadToEndAsync()
+ Check (Until {$hostOutput.IsReady -and (Owner $h) -ne [IntPtr]::Zero}) 'fixture-close attached after verification host confirms Session Apply'
  [void][NativeIslandLeaseContract]::Send($h,0x10)
  Check ($fixture.WaitForExit(5000) -and $fixture.ExitCode -eq 0) 'owned fixture exits successfully'
  Check (-not [NativeIslandLeaseContract]::IsWindow($h)) 'owned target HWND is destroyed'
@@ -152,4 +158,5 @@ try{
  }
  if($fixture){if(-not $fixture.HasExited){$owned=[NativeIslandLeaseContract]::Find($fixture.Id);if($owned -ne [IntPtr]::Zero -and (Owner $owned) -eq [IntPtr]::Zero){[void][NativeIslandLeaseContract]::Send($owned,0x10);[void]$fixture.WaitForExit(5000)}};$fixture.Dispose()}
  [void][NativeIslandLeaseContract]::SetForegroundWindow($foreground)
+ [NativeIslandCaptureBackdrop]::Close()
 }

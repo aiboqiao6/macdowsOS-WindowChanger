@@ -249,7 +249,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8)
         target_link_libraries(WinUI3NativeIslandProbe PRIVATE windowsapp ole32 oleaut32 comctl32)
         set_target_properties(WinUI3NativeIslandProbe PROPERTIES OUTPUT_NAME "WinUI3NativeIsland-${native_island_revision}"
             MSVC_RUNTIME_LIBRARY MultiThreadedDLL RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/winui-native-research")
-        add_executable(WinUI3NativeIslandHost "${native_island_source}")
+        add_executable(WinUI3NativeIslandHost "${CMAKE_CURRENT_SOURCE_DIR}/../winui3-probe/native-island-host.cpp")
         target_link_libraries(WinUI3NativeIslandHost PRIVATE styler_session)
         add_dependencies(WinUI3NativeIslandHost MacdowsStyleHook WinUI3NativeIslandProbe)
         set_target_properties(WinUI3NativeIslandHost PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/winui-native-research")

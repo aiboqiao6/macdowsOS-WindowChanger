@@ -40,6 +40,8 @@ NativeIslandFrame 还保留了包裹原根和修改原根 Margin 两种对照模
 
 Debug 时指定各脚本对应的 Debug FixtureDirectory、HostDirectory（第一个脚本不需要 HostDirectory）和独立 OutputDirectory。UI 测试串行运行。第一个脚本在自有深浅色窗口中验证几何、正文像素、原标题文字和配色恢复、标题主题、旧按钮禁用、缩放、最大化和三灯真实点击。第二个脚本通过外部研究控制器验证正常退出、控制器进程异常退出、最小化时控制器退出、根节点替换、宿主关闭和应用内部主题切换。
 
+外部验证主机现由 `native-island-host.cpp` 包装，及时刷新管道输出。`host-readiness.ps1` 保留完整日志，并在主机确认 Session::Apply 成功、选中 Adapter288 后才允许测试继续，避免看到租约就提前撤销。截图用 `capture-guard.ps1` 在等待后核验前台和 Z 序遮挡。`capture-backdrop.ps1` 在自有测试窗口下方放置真实、不激活的纯色辅助窗口，固定 GetWindowRect 所含透明缩放边框背后的内容；不修改目标属性，不裁剪、遮罩或改写截图像素，结束时销毁辅助窗口。背景只是验证工具，不进入运行包或被注入进程。新增背景路径仍需完成其全部矩阵，不能沿用添加前的截图结果。
+
 第三个脚本通过外部研究控制器执行 107 项边界检查，也可指定 -Scenario narrow、keyboard 或 palette。--boundary-sizes 自有窗口仅放开 WM_WINDOWPOSCHANGING 的最小尺寸约束，不改非客户区计算和原按钮能力，以实际到达 125/126px 边界。--interactive 使用显式模板的 XAML Button 接收 CharacterReceived，检查实际字符输入、Tab/Shift+Tab、Enter 及绿灯点击后的焦点；这不是 TextBox、文本编辑或输入法验证。标题属性测试检查 12 项颜色、清空与更新、图标/高度/主题，并把撤销后的完整窗口 PNG 与独立未注入窗口逐字节比较。脚本不裁剪或屏蔽差异。所有脚本只关闭自己创建的 fixture，异常退出测试只终止自己创建并校验路径的研究控制器。
 
 第五个脚本使用 --text-editor 的标准 WinUI TextBox，未替换其默认模板；fixture 提供 IXamlMetadataProvider 和 XamlControlsResources。通过真实 SendInput 验证全文及选区替换、Delete/Backspace、多行、Unicode 字符、Tab/Shift+Tab、Enter，以及跨附加/撤销的 Ctrl+Z/Ctrl+Y。脚本比较文本、选区、焦点、CanUndo/CanRedo、TextChanged 和 Loaded/Unloaded 次数；深浅主题各执行正常撤销和控制器异常退出，共四种场景，每种先运行三个独立且从未注入的原生对照窗口。

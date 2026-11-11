@@ -630,5 +630,8 @@
     <ClCompile Include="../../demos/window-styler/winui3-native.cpp"><Filter>源文件</Filter></ClCompile>
     <None Include="../../demos/window-styler/research/winui3-probe/test-paint-document.ps1"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/research/winui3-probe/capture-guard.ps1"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/winui3-probe/capture-backdrop.ps1"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/winui3-probe/host-readiness.ps1"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/winui3-probe/native-island-host.cpp"><Filter>框架研究</Filter></None>
   </ItemGroup>
 </Project>

@@ -6,9 +6,13 @@ param(
 $ErrorActionPreference='Stop'
 $fixturePath=Join-Path (Resolve-Path -LiteralPath $FixtureDirectory).Path 'WinUI3NativeIslandFixture.exe'
 $hostPath=Join-Path (Resolve-Path -LiteralPath $HostDirectory).Path 'WinUI3NativeIslandHost.exe'
+if(Test-Path -LiteralPath $OutputDirectory){throw 'Use a new output directory to preserve earlier evidence'}
 [void](New-Item -ItemType Directory -Path $OutputDirectory -Force)
 $OutputDirectory=(Resolve-Path -LiteralPath $OutputDirectory).Path
 Add-Type -AssemblyName System.Drawing
+. (Join-Path $PSScriptRoot 'capture-guard.ps1')
+. (Join-Path $PSScriptRoot 'capture-backdrop.ps1')
+. (Join-Path $PSScriptRoot 'host-readiness.ps1')
 Add-Type @'
 using System;using System.Runtime.InteropServices;
 public static class NativeIslandInitialization {
@@ -54,8 +58,10 @@ function Owner {[NativeIslandInitialization]::GetProp($script:h,'Macdows.WindowS
 function Shot([string]$name){
  $g=[NativeIslandInitialization]::Geometry($script:h)
  [void][NativeIslandInitialization]::SetForegroundWindow($script:h)
+ [NativeIslandCaptureBackdrop]::Place($script:h)
  [void][NativeIslandInitialization]::SetCursorPos(($g[0]+500),($g[1]+20))
  Start-Sleep -Milliseconds 700
+ [WindowStylerCaptureGuard]::Check($script:h,$g[0],$g[1],($g[2]-$g[0]),($g[3]-$g[1]))
  $b=[Drawing.Bitmap]::new(($g[2]-$g[0]),($g[3]-$g[1]));$d=[Drawing.Graphics]::FromImage($b)
  try{$d.CopyFromScreen($g[0],$g[1],0,0,$b.Size);$b.Save((Join-Path $OutputDirectory ($name+'.png')),[Drawing.Imaging.ImageFormat]::Png)}finally{$d.Dispose();$b.Dispose()}
  return (Get-FileHash (Join-Path $OutputDirectory ($name+'.png'))).Hash
@@ -66,7 +72,7 @@ function StartResearch([string]$name,[int]$seconds=30){
  $script:worker.StartInfo.FileName=$hostPath;$script:worker.StartInfo.Arguments=$script:h.ToInt64().ToString()+' '+$seconds
  $script:worker.StartInfo.UseShellExecute=$false;$script:worker.StartInfo.CreateNoWindow=$true
  $script:worker.StartInfo.RedirectStandardOutput=$true;$script:worker.StartInfo.RedirectStandardError=$true
- [void]$script:worker.Start();$script:stdout=$script:worker.StandardOutput.ReadToEndAsync();$script:stderr=$script:worker.StandardError.ReadToEndAsync()
+ [void]$script:worker.Start();$script:hostOutput=[NativeIslandHostOutput]::new($script:worker.StandardOutput);$script:stdout=$script:hostOutput.Completion;$script:stderr=$script:worker.StandardError.ReadToEndAsync()
 }
 function FinishResearch([int[]]$expected){
  Check ($script:worker.WaitForExit(10000) -and $script:worker.ExitCode -in $expected) ($script:run+' host exits with expected status')
@@ -121,8 +127,8 @@ try {
     Check ($before -eq (Shot ($name+'-restored'))) 'cancelled close restores whole-window pixels'
    }
    StartResearch ($name+'-reattach') 3
-   Check (Until {(Owner) -ne [IntPtr]::Zero -or $worker.HasExited}) ($name+' later attach completes')
-   Check ((Owner) -ne [IntPtr]::Zero) ($name+' later attach succeeds')
+   Check (Until {($script:hostOutput.IsReady -and (Owner) -ne [IntPtr]::Zero) -or $worker.HasExited}) ($name+' later attach completes')
+   Check ($script:hostOutput.IsReady -and (Owner) -ne [IntPtr]::Zero) ($name+' later attach succeeds after host confirms Session Apply')
    FinishResearch 0
    Check ((Owner) -eq [IntPtr]::Zero -and (Metric 10) -eq 1 -and (Metric 9) -eq 1) ($name+' later attach restores current host root')
    Check ([NativeIslandInitialization]::Find($fixture.Id) -eq $h) ($name+' close identity matches owned fixture')
@@ -139,5 +145,6 @@ try {
  if($worker){if(-not $worker.HasExited){[void]$worker.WaitForExit(32000)};if($worker.HasExited){$stdout.GetAwaiter().GetResult()|Set-Content -LiteralPath (Join-Path $OutputDirectory ($run+'.log')) -Encoding utf8;$stderr.GetAwaiter().GetResult()|Set-Content -LiteralPath (Join-Path $OutputDirectory ($run+'.err')) -Encoding utf8};$worker.Dispose()}
  if($fixture){if(-not $fixture.HasExited){$owned=[NativeIslandInitialization]::Find($fixture.Id);if($owned -ne [IntPtr]::Zero -and $fixture.Path -eq $fixturePath -and ([NativeIslandInitialization]::GetProp($owned,'Macdows.WindowStyler.Owner.v1')) -eq [IntPtr]::Zero){[void][NativeIslandInitialization]::Send($owned,0x10);[void]$fixture.WaitForExit(5000)}};$fixture.Dispose()}
  [void][NativeIslandInitialization]::SetCursorPos($cursor.x,$cursor.y)
+ [NativeIslandCaptureBackdrop]::Close()
  [void][NativeIslandInitialization]::SetForegroundWindow($foreground)
 }

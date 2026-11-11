@@ -7,9 +7,13 @@ param(
 $ErrorActionPreference='Stop'
 $fixturePath=Join-Path (Resolve-Path -LiteralPath $FixtureDirectory).Path 'WinUI3NativeIslandFixture.exe'
 $hostPath=Join-Path (Resolve-Path -LiteralPath $HostDirectory).Path 'WinUI3NativeIslandHost.exe'
+if(Test-Path -LiteralPath $OutputDirectory){throw 'Use a new output directory to preserve earlier evidence'}
 [void](New-Item -ItemType Directory -Path $OutputDirectory -Force)
 $OutputDirectory=(Resolve-Path -LiteralPath $OutputDirectory).Path
 Add-Type -AssemblyName System.Drawing
+. (Join-Path $PSScriptRoot 'capture-guard.ps1')
+. (Join-Path $PSScriptRoot 'capture-backdrop.ps1')
+. (Join-Path $PSScriptRoot 'host-readiness.ps1')
 Add-Type @'
 using System;using System.Runtime.InteropServices;
 public static class NativeIslandBoundary {
@@ -29,6 +33,8 @@ public static class NativeIslandBoundary {
  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern bool GetCursorPos(out P p);
  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
+ [DllImport("user32.dll")] public static extern bool GetPhysicalCursorPos(out P p);
+ [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr c);
  [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(P p);
  [DllImport("user32.dll")] public static extern bool IsChild(IntPtr p,IntPtr h);
  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
@@ -43,12 +49,12 @@ public static class NativeIslandBoundary {
  public static long Send(IntPtr h,uint m,long w=0){UIntPtr r;if(SendMessageTimeout(h,m,(IntPtr)w,IntPtr.Zero,2,2000,out r)==IntPtr.Zero)throw new Exception("Fixture timeout");return unchecked((long)r.ToUInt64());}
  public static IntPtr Find(uint pid){IntPtr result=IntPtr.Zero;EnumWindows((h,l)=>{uint p;GetWindowThreadProcessId(h,out p);if(p==pid&&GetProp(h,"Macdows.Research.NativeIsland.Owned")!=IntPtr.Zero){result=h;return false;}return true;},IntPtr.Zero);return result;}
  public static int[] Geometry(IntPtr h){R o,c;var p=new P();GetWindowRect(h,out o);GetClientRect(h,out c);ClientToScreen(h,ref p);return new[]{o.l,o.t,o.r,o.b,c.l,c.t,c.r,c.b,p.x,p.y};}
- static void Guard(IntPtr h){if(GetForegroundWindow()!=h)throw new Exception("Owned fixture is not foreground");foreach(var k in new[]{16,17,18,91,92})if(GetAsyncKeyState(k)<0)throw new Exception("User modifier key is held");}
+ static void Guard(IntPtr h){if(SetThreadDpiAwarenessContext((IntPtr)(-4))==IntPtr.Zero)throw new Exception("Cannot establish physical input coordinates");uint pid;GetWindowThreadProcessId(h,out pid);if(GetForegroundWindow()!=h||Find(pid)!=h)throw new Exception("Owned fixture identity or foreground changed");foreach(var k in new[]{16,17,18,91,92})if(GetAsyncKeyState(k)<0)throw new Exception("User modifier key is held");}
  static I Key(ushort vk,ushort scan,uint flags){return new I{type=1,u=new U{k=new K{vk=vk,scan=scan,flags=flags}}};}
  static void Input(I[] values){if(SendInput((uint)values.Length,values,Marshal.SizeOf(typeof(I)))!=values.Length)throw new Exception("Input rejected");}
  public static void Type(IntPtr h,string text){Guard(h);var a=new I[text.Length*2];for(int i=0;i<text.Length;i++){a[2*i]=Key(0,text[i],4);a[2*i+1]=Key(0,text[i],6);}Input(a);}
  public static void Press(IntPtr h,ushort key,bool shift=false){Guard(h);if(shift)Input(new[]{Key(16,0,0),Key(key,0,0),Key(key,0,2),Key(16,0,2)});else Input(new[]{Key(key,0,0),Key(key,0,2)});}
- public static void Green(IntPtr h){Guard(h);var g=Geometry(h);var p=new P{x=87,y=(int)(Send(h,0x804a,3)-g[9])/2};ClientToScreen(h,ref p);SetCursorPos(p.x,p.y);System.Threading.Thread.Sleep(100);var hit=WindowFromPoint(p);if(hit!=h&&!IsChild(h,hit))throw new Exception("Owned caption is occluded");Input(new[]{new I{u=new U{m=new M{flags=2}}},new I{u=new U{m=new M{flags=4}}}});}
+ public static void Green(IntPtr h){Guard(h);var g=Geometry(h);var p=new P{x=87,y=(int)(Send(h,0x804a,3)-g[9])/2};ClientToScreen(h,ref p);if(!SetCursorPos(p.x,p.y))throw new Exception("Cannot position owned caption cursor");System.Threading.Thread.Sleep(100);P actual;if(!GetPhysicalCursorPos(out actual)||actual.x!=p.x||actual.y!=p.y)throw new Exception("Physical caption cursor mismatch");var hit=WindowFromPoint(p);if(hit!=h&&!IsChild(h,hit))throw new Exception("Owned caption is occluded");Guard(h);Input(new[]{new I{u=new U{m=new M{flags=2}}},new I{u=new U{m=new M{flags=4}}}});}
 }
 '@
 [void][NativeIslandBoundary]::SetProcessDpiAwarenessContext([IntPtr](-4))
@@ -89,10 +95,10 @@ function StartResearch([string]$name,[bool]$accepted=$true){
  $script:worker.StartInfo.UseShellExecute=$false;$script:worker.StartInfo.CreateNoWindow=$true
  $script:worker.StartInfo.RedirectStandardOutput=$true;$script:worker.StartInfo.RedirectStandardError=$true
  [void]$script:worker.Start()
- $script:stdout=$script:worker.StandardOutput.ReadToEndAsync();$script:stderr=$script:worker.StandardError.ReadToEndAsync()
+ $script:hostOutput=[NativeIslandHostOutput]::new($script:worker.StandardOutput);$script:stdout=$script:hostOutput.Completion;$script:stderr=$script:worker.StandardError.ReadToEndAsync()
  if($accepted){
-  Check (Until {(Owner) -ne [IntPtr]::Zero -or $script:worker.HasExited}) ($name+' completes attach attempt')
-  Check ((Owner) -ne [IntPtr]::Zero) ($name+' attached')
+  Check (Until {($script:hostOutput.IsReady -and (Owner) -ne [IntPtr]::Zero) -or $script:worker.HasExited}) ($name+' completes attach attempt')
+  Check ($script:hostOutput.IsReady -and (Owner) -ne [IntPtr]::Zero) ($name+' attached after verification host confirms Session Apply')
  }else{
   Check ($script:worker.WaitForExit(6000) -and $script:worker.ExitCode -eq 50) ($name+' rejects unsupported geometry')
   Check ((Owner) -eq [IntPtr]::Zero) ($name+' creates no lease')
@@ -122,9 +128,11 @@ function CloseFixture {
  $script:fixture.Dispose();$script:fixture=$null
 }
 function Shot([string]$name,[switch]$CountLights){
+ [NativeIslandCaptureBackdrop]::Place($script:h)
  $g=[NativeIslandBoundary]::Geometry($script:h)
  [void][NativeIslandBoundary]::SetCursorPos(($g[0]+$g[2])/2,($g[1]+20))
  Start-Sleep -Milliseconds 700
+ [WindowStylerCaptureGuard]::Check($script:h,$g[0],$g[1],($g[2]-$g[0]),($g[3]-$g[1]))
  $b=[Drawing.Bitmap]::new(($g[2]-$g[0]),($g[3]-$g[1]));$draw=[Drawing.Graphics]::FromImage($b)
  try{
   $draw.CopyFromScreen($g[0],$g[1],0,0,$b.Size);$b.Save((Join-Path $OutputDirectory ($name+'.png')),[Drawing.Imaging.ImageFormat]::Png)
@@ -259,5 +267,6 @@ try {
  if($worker){if(-not $worker.HasExited){[void]$worker.WaitForExit(32000)};if($worker.HasExited){$stdout.GetAwaiter().GetResult()|Set-Content -LiteralPath (Join-Path $OutputDirectory ($run+'.log')) -Encoding utf8;$stderr.GetAwaiter().GetResult()|Set-Content -LiteralPath (Join-Path $OutputDirectory ($run+'.err')) -Encoding utf8};$worker.Dispose()}
  if($fixture){$fixture.Dispose()}
  [void][NativeIslandBoundary]::SetCursorPos($cursor.x,$cursor.y)
+ [NativeIslandCaptureBackdrop]::Close()
  [void][NativeIslandBoundary]::SetForegroundWindow($foreground)
 }

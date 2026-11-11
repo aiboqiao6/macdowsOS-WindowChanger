@@ -275,6 +275,9 @@
     <None Include="../../demos/window-styler/pe-imports-tests.cpp" />
     <None Include="../../demos/window-styler/research/winui3-probe/test-paint-document.ps1" />
     <None Include="../../demos/window-styler/research/winui3-probe/capture-guard.ps1" />
+    <None Include="../../demos/window-styler/research/winui3-probe/capture-backdrop.ps1" />
+    <None Include="../../demos/window-styler/research/winui3-probe/host-readiness.ps1" />
+    <None Include="../../demos/window-styler/research/winui3-probe/native-island-host.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

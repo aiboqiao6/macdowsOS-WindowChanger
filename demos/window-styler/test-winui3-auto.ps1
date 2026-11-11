@@ -11,6 +11,8 @@ if(Test-Path -LiteralPath $OutputDirectory){throw 'Use a new evidence directory'
 [void](New-Item -ItemType Directory -Path $OutputDirectory)
 $OutputDirectory=(Resolve-Path -LiteralPath $OutputDirectory).Path
 Add-Type -AssemblyName System.Drawing
+. (Join-Path $PSScriptRoot 'research/winui3-probe/capture-guard.ps1')
+. (Join-Path $PSScriptRoot 'research/winui3-probe/capture-backdrop.ps1')
 Add-Type @'
 using System;using System.Text;using System.Runtime.InteropServices;
 public static class NativeAutomaticContract {
@@ -54,10 +56,12 @@ function Managed{
 function Metric([int]$n){[NativeAutomaticContract]::Send($script:owner,$testMessage,$n)}
 function Snapshot($name){
  [void][NativeAutomaticContract]::SetForegroundWindow($script:h);Start-Sleep -Milliseconds 450
+ [NativeIslandCaptureBackdrop]::Place($script:h);Start-Sleep -Milliseconds 100
  Check ([NativeAutomaticContract]::GetForegroundWindow() -eq $script:h) ('owned foreground for '+$name)
  $g=[NativeAutomaticContract]::Geometry($script:h)
  foreach($part in @('window','body')){
   if($part -eq 'window'){$x=$g[0];$y=$g[1];$w=$g[2]-$g[0];$t=$g[3]-$g[1]}else{$x=$script:geometry[6];$y=$script:geometry[7];$w=$script:geometry[4];$t=$script:geometry[5]}
+  [WindowStylerCaptureGuard]::Check($script:h,$x,$y,$w,$t)
   $b=[Drawing.Bitmap]::new($w,$t);$dc=[Drawing.Graphics]::FromImage($b)
   try{$dc.CopyFromScreen($x,$y,0,0,$b.Size);$b.Save((Join-Path $script:dir ($name+'-'+$part+'.png')),[Drawing.Imaging.ImageFormat]::Png)}finally{$dc.Dispose();$b.Dispose()}
  }
@@ -131,4 +135,5 @@ finally{
  if($fixture){if(-not $fixture.HasExited -and $fixture.Path -ceq $fixturePath -and (Owner) -eq [IntPtr]::Zero -and [NativeAutomaticContract]::GetProp($h,'Macdows.Research.NativeIsland.Owned') -ne [IntPtr]::Zero){try{[void][NativeAutomaticContract]::Send($h,0x10);[void]$fixture.WaitForExit(5000)}catch{}};$fixture.Dispose()}
  RemoveScope
  [void][NativeAutomaticContract]::SetForegroundWindow($foreground)
+ [NativeIslandCaptureBackdrop]::Close()
 }

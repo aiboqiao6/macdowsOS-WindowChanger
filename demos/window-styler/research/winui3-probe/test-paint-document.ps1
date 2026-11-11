@@ -17,6 +17,8 @@ $HostDirectory=(Resolve-Path -LiteralPath $HostDirectory).Path
 $OutputDirectory=(Resolve-Path -LiteralPath $OutputDirectory).Path
 Add-Type -AssemblyName System.Drawing,UIAutomationClient,UIAutomationTypes
 . (Join-Path $PSScriptRoot 'capture-guard.ps1')
+. (Join-Path $PSScriptRoot 'capture-backdrop.ps1')
+. (Join-Path $PSScriptRoot 'host-readiness.ps1')
 Add-Type @'
 using System;using System.Runtime.InteropServices;
 public static class PaintDocumentInput {
@@ -124,6 +126,7 @@ function Stroke([int]$x,[int]$y){[PaintDocumentInput]::Stroke($script:h,$script:
 function Key([int]$k){[PaintDocumentInput]::Press($script:h,$script:paint.Id,$k)}
 function Snapshot([string]$name){
  [PaintDocumentInput]::Guard($script:h,$script:paint.Id)
+ [NativeIslandCaptureBackdrop]::Place($script:h)
  [PaintDocumentInput]::Park($script:h,$script:paint.Id,($script:geometry[0]+700),($script:geometry[1]+20))
  Start-Sleep -Milliseconds 400
  $current=[PaintDocumentInput]::Geometry($script:h)
@@ -143,8 +146,9 @@ function StartResearch {
  $script:worker.StartInfo.UseShellExecute=$false;$script:worker.StartInfo.CreateNoWindow=$true
  $script:worker.StartInfo.RedirectStandardOutput=$true;$script:worker.StartInfo.RedirectStandardError=$true
  [void]$script:worker.Start()
- $script:stdout=$script:worker.StandardOutput.ReadToEndAsync();$script:stderr=$script:worker.StandardError.ReadToEndAsync()
- Check (Until {$script:worker.HasExited -or ((Owner) -ne [IntPtr]::Zero -and [PaintDocumentInput]::Send($script:h,[PaintDocumentInput]::RegisterWindowMessage('Macdows.WindowStyler.Query.v1')) -eq 0x4d414357)}) 'research attach completes with loaded caption controls'
+ $script:hostOutput=[NativeIslandHostOutput]::new($script:worker.StandardOutput);$script:stdout=$script:hostOutput.Completion;$script:stderr=$script:worker.StandardError.ReadToEndAsync()
+ Check (Until {$script:worker.HasExited -or ($script:hostOutput.IsReady -and (Owner) -ne [IntPtr]::Zero -and [PaintDocumentInput]::Send($script:h,[PaintDocumentInput]::RegisterWindowMessage('Macdows.WindowStyler.Query.v1')) -eq 0x4d414357)}) 'research attach completes with loaded caption controls'
+ Check ($script:hostOutput.IsReady) 'verification host confirms completed attachment before interaction'
  Check ((Owner) -ne [IntPtr]::Zero -and [PaintDocumentInput]::Send($script:h,[PaintDocumentInput]::RegisterWindowMessage('Macdows.WindowStyler.Query.v1')) -eq 0x4d414357) 'research lease acknowledges attachment'
  $registry=Get-Content -LiteralPath (Join-Path (Split-Path $script:hostPath) 'adapters.ini') -Raw
  $section=[regex]::Match($registry,'(?ms)^\[Adapter288\]\r?\n(.*?)(?=^\[|\z)').Groups[1].Value
@@ -289,5 +293,6 @@ try {
   $script:paint.Dispose()
  }
  [void][PaintDocumentInput]::SetCursorPos($cursor.x,$cursor.y)
+ [NativeIslandCaptureBackdrop]::Close()
  [void][PaintDocumentInput]::SetForegroundWindow($foreground)
 }

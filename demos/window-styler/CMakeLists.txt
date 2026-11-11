@@ -268,7 +268,7 @@ if(TARGET MacdowsWinUI3Native AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE
     # Test host exercises Automatic with the complete production registry. It
     # has no administrator manifest and only accepts one explicit owned HWND.
     # Standalone framework research defines its own bounded host of this name.
-    add_executable(WinUI3NativeIslandHost research/winui3-probe/native-island.cpp)
+    add_executable(WinUI3NativeIslandHost research/winui3-probe/native-island-host.cpp)
     target_compile_definitions(WinUI3NativeIslandHost PRIVATE WINUI3_NATIVE_AUTOMATIC)
     target_link_libraries(WinUI3NativeIslandHost PRIVATE styler_session)
     add_dependencies(WinUI3NativeIslandHost MacdowsStyleHook)

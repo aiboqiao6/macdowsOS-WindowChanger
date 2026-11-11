@@ -16,11 +16,13 @@ if($NativeViewportCycle -and -not $WithoutInjection){throw 'Viewport diagnostic 
 if($ReadNativeComposition -and (-not $WithoutInjection -or -not $FailureReader)){throw 'Native composition diagnostic requires WithoutInjection and FailureReader'}
 $fixturePath=Join-Path (Resolve-Path -LiteralPath $FixtureDirectory).Path 'WinUI3NativeIslandFixture.exe'
 $hostPath=Join-Path (Resolve-Path -LiteralPath $HostDirectory).Path 'WinUI3NativeIslandHost.exe'
-if((Test-Path (Join-Path $OutputDirectory 'checks.json')) -or (Test-Path (Join-Path $OutputDirectory 'result.json'))){throw 'Use a new output directory to preserve earlier evidence'}
+if(Test-Path -LiteralPath $OutputDirectory){throw 'Use a new output directory to preserve earlier evidence'}
 [void](New-Item -ItemType Directory -Path $OutputDirectory -Force)
 $OutputDirectory=(Resolve-Path -LiteralPath $OutputDirectory).Path
 Add-Type -AssemblyName System.Drawing
 . (Join-Path $PSScriptRoot 'capture-guard.ps1')
+. (Join-Path $PSScriptRoot 'capture-backdrop.ps1')
+. (Join-Path $PSScriptRoot 'host-readiness.ps1')
 Add-Type @'
 using System;using System.Runtime.InteropServices;
 public static class NativeIslandText {
@@ -121,6 +123,7 @@ function EditorFocus {
 }
 function Shot([string]$name){
  [NativeIslandText]::Guard($script:h)
+ [NativeIslandCaptureBackdrop]::Place($script:h)
  Check ((Metric 40) -eq 2 -and (Metric 50) -eq 0) 'screenshot has action focus without blinking caret'
  $g=[NativeIslandText]::Geometry($script:h)
  [void][NativeIslandText]::SetCursorPos(($g[0]+$g[2])/2,($g[1]+20))
@@ -141,8 +144,9 @@ function StartResearch {
  $script:worker.StartInfo.UseShellExecute=$false;$script:worker.StartInfo.CreateNoWindow=$true
  $script:worker.StartInfo.RedirectStandardOutput=$true;$script:worker.StartInfo.RedirectStandardError=$true
  [void]$script:worker.Start()
- $script:stdout=$script:worker.StandardOutput.ReadToEndAsync();$script:stderr=$script:worker.StandardError.ReadToEndAsync()
- Check (Until {$script:worker.HasExited -or ((Owner) -ne [IntPtr]::Zero -and ([NativeIslandText]::Send($script:h,[NativeIslandText]::RegisterWindowMessage('Macdows.WindowStyler.Query.v1'))) -eq 0x4d414357)}) 'research attach completes'
+ $script:hostOutput=[NativeIslandHostOutput]::new($script:worker.StandardOutput);$script:stdout=$script:hostOutput.Completion;$script:stderr=$script:worker.StandardError.ReadToEndAsync()
+ Check (Until {$script:worker.HasExited -or ($script:hostOutput.IsReady -and (Owner) -ne [IntPtr]::Zero -and ([NativeIslandText]::Send($script:h,[NativeIslandText]::RegisterWindowMessage('Macdows.WindowStyler.Query.v1'))) -eq 0x4d414357)}) 'research attach completes'
+ Check ($script:hostOutput.IsReady) 'verification host confirms completed attachment before interaction'
  Check (-not $script:worker.HasExited -and ([NativeIslandText]::Send($script:h,[NativeIslandText]::RegisterWindowMessage('Macdows.WindowStyler.Query.v1'))) -eq 0x4d414357) 'loaded caption confirms input readiness before test interaction'
  Check ((Owner) -ne [IntPtr]::Zero -and (Metric 10) -eq 0 -and (Metric 9) -eq 1) 'external research owns lease and original root stays installed'
 }
@@ -333,5 +337,6 @@ try {
  if($script:worker){if(-not $script:worker.HasExited){[void]$script:worker.WaitForExit(32000)};if($script:worker.HasExited){$script:stdout.GetAwaiter().GetResult()|Set-Content -LiteralPath (Join-Path $OutputDirectory ($run+'.log')) -Encoding utf8;$script:stderr.GetAwaiter().GetResult()|Set-Content -LiteralPath (Join-Path $OutputDirectory ($run+'.err')) -Encoding utf8};$script:worker.Dispose()}
  if($script:fixture){$script:fixture.Dispose()}
  [void][NativeIslandText]::SetCursorPos($cursor.x,$cursor.y)
+ [NativeIslandCaptureBackdrop]::Close()
  [void][NativeIslandText]::SetForegroundWindow($foreground)
 }
