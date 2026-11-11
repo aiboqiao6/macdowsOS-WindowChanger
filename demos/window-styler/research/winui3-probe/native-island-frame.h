@@ -1,5 +1,5 @@
 #pragma once
-// Research-only public-framework native-title transaction. No adapter registration.
+// Shared public-framework native-title transaction; registration is external.
 #include <windows.h>
 #include <commctrl.h>
 #undef GetCurrentTime
@@ -9,6 +9,7 @@
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.Primitives.h>
 #include <winrt/Microsoft.UI.Xaml.Hosting.h>
+#include <winrt/Microsoft.UI.Xaml.Input.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <winrt/Microsoft.UI.Xaml.Shapes.h>
 #include <winrt/Microsoft.UI.Xaml.Markup.h>
@@ -134,7 +135,7 @@ struct NativeIslandFrame {
     w::OverlappedPresenter presenter{nullptr};
     input::InputNonClientPointerSource pointer{nullptr};
     std::vector<RectInt32> caption, passthrough;
-    bool active{}, changing{}, preserveRoot{}, separateTitle{}, invalid{}, restoring{};
+    bool active{}, changing{}, preserveRoot{}, separateTitle{}, invalid{}, restoring{}, themePending{};
     UINT closeMessage{};
     WPARAM closeWP{};
     LPARAM closeLP{};
@@ -158,6 +159,10 @@ struct NativeIslandFrame {
     static bool IsClose(UINT message, WPARAM wp) {
         return message == WM_CLOSE || (message == WM_SYSCOMMAND && (wp & 0xfff0) == SC_CLOSE);
     }
+    static UINT ThemeMessage() {
+        static const UINT value = RegisterWindowMessageW(L"Macdows.WindowStyler.WinUI3.Theme.v1");
+        return value;
+    }
 
     NativeIslandFrame(HWND target, x::Hosting::DesktopWindowXamlSource const &island, bool keepRoot = false,
                       bool ownTitle = false)
@@ -179,6 +184,23 @@ struct NativeIslandFrame {
             // the bridge's close state before touching the source again.
             return !sourceBridge.IsClosed() && source.Content() == (preserveRoot || separateTitle ? body : frame) &&
                    (!separateTitle || (titleSource && titleSource.Content() == frame));
+        } catch (...) {
+            return false;
+        }
+    }
+    bool InputReady() {
+        Operation operation(*this);
+        try {
+            // Content assignment and UpdateLayout can precede Loaded for a
+            // newly created source. A lease alone does not mean that its
+            // caption controls have entered the input/visual tree.
+            if (!frame || !lights || !frame.IsLoaded() || !lights.IsLoaded() || frame.ActualWidth() <= 0 ||
+                frame.ActualHeight() <= 0)
+                return false;
+            for (auto const &button : buttons)
+                if (!button || !button.IsLoaded() || button.ActualWidth() <= 0 || button.ActualHeight() <= 0)
+                    return false;
+            return true;
         } catch (...) {
             return false;
         }
@@ -212,6 +234,11 @@ struct NativeIslandFrame {
         // Public framework calls can pump host input. Replay the original
         // close only after the outermost call has returned.
         auto self = reinterpret_cast<NativeIslandFrame *>(data);
+        if (self && m == ThemeMessage()) {
+            self->themePending = false;
+            self->RefreshTheme();
+            return 0;
+        }
         if (self && self->operationDepth && IsClose(m, wp)) {
             self->closeMessage = m;
             self->closeWP = wp;
@@ -304,7 +331,20 @@ struct NativeIslandFrame {
                 invalid = true;
             }
     }
+    void QueueTheme() {
+        // ActualThemeChanged runs during the host's resource propagation.
+        // Updating another XamlRoot from that callback reenters the theme walk.
+        // Read the final host palette after the outer framework call returns.
+        if (active && !changing && !themePending) {
+            themePending = true;
+            if (!ThemeMessage() || !PostMessageW(hwnd, ThemeMessage(), 0, 0)) {
+                themePending = false;
+                invalid = true;
+            }
+        }
+    }
     void Unwatch() {
+        themePending = false;
         themeChanged.revoke();
         if (watchingBackground) {
             body.UnregisterPropertyChangedCallback(backgroundProperty, backgroundToken);
@@ -419,6 +459,8 @@ struct NativeIslandFrame {
         if (active || source.Content() != body || !presenter.HasBorder() || !presenter.HasTitleBar() ||
             window.TitleBar().ExtendsContentIntoTitleBar() || body.GetBindingExpression(c::Grid::RowProperty()))
             winrt::throw_hresult(E_UNEXPECTED);
+        const bool contentHadFocus = separateTitle && source.HasFocus();
+        auto focusedContent = contentHadFocus ? x::Input::FocusManager::GetFocusedElement(body.XamlRoot()) : nullptr;
         originalRow = body.ReadLocalValue(c::Grid::RowProperty());
         palette.emplace(window.TitleBar());
         if (preserveRoot && !separateTitle) {
@@ -543,7 +585,7 @@ struct NativeIslandFrame {
             if (!SetWindowSubclass(hwnd, CaptionFilter, 0x4e49534c, reinterpret_cast<DWORD_PTR>(this)))
                 winrt::throw_last_error();
             themeChanged =
-                body.ActualThemeChanged(winrt::auto_revoke, [this](auto const &, auto const &) { RefreshTheme(); });
+                body.ActualThemeChanged(winrt::auto_revoke, [this](auto const &, auto const &) { QueueTheme(); });
             if (body.try_as<c::Panel>())
                 backgroundProperty = c::Panel::BackgroundProperty();
             else if (body.try_as<c::Control>())
@@ -552,10 +594,21 @@ struct NativeIslandFrame {
                 backgroundProperty = c::Border::BackgroundProperty();
             if (backgroundProperty) {
                 backgroundToken = body.RegisterPropertyChangedCallback(
-                    backgroundProperty, [this](auto const &, auto const &) { RefreshTheme(); });
+                    backgroundProperty, [this](auto const &, auto const &) { QueueTheme(); });
                 watchingBackground = true;
             }
             appliedPalette.emplace(window.TitleBar());
+            // Creating a second source can move native focus away from a
+            // recently rebuilt island while its logical TextBox focus remains.
+            // Restore only that existing focus, in the still-foreground host;
+            // never select a new control or undo a host's logical focus change.
+            if (contentHadFocus && focusedContent && GetForegroundWindow() == hwnd && OwnsSource() &&
+                x::Input::FocusManager::GetFocusedElement(body.XamlRoot()) == focusedContent && !source.HasFocus()) {
+                source.NavigateFocus(
+                    x::Hosting::XamlSourceFocusNavigationRequest(x::Hosting::XamlSourceFocusNavigationReason::Restore));
+                if (!source.HasFocus())
+                    winrt::throw_hresult(E_FAIL);
+            }
             changing = false;
         } catch (...) {
             Restore();

@@ -622,6 +622,13 @@
     <None Include="../../demos/window-styler/verification-v39.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v40.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v41.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/verification-v42.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/release-v42.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/test-winui3-auto.ps1"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/pe-imports.h"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/pe-imports-tests.cpp"><Filter>框架研究</Filter></None>
+    <ClCompile Include="../../demos/window-styler/winui3-native.cpp"><Filter>源文件</Filter></ClCompile>
     <None Include="../../demos/window-styler/research/winui3-probe/test-paint-document.ps1"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/winui3-probe/capture-guard.ps1"><Filter>框架研究</Filter></None>
   </ItemGroup>
 </Project>

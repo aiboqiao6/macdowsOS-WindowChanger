@@ -1,6 +1,6 @@
 # 独立 WinUI 标题岛屿实验
 
-这是独立研究程序，正式注册表和运行包不引用它。它不按应用名称、路径或软件名单选择目标；研究注册表要求精确 Microsoft.UI.Xaml CodeView，进程内还要求 144 DPI、LTR、正常窗口、原生标题、唯一且完整填满客户区的 XAML 岛屿。记事本的多个岛屿不满足条件。ABI、源窗口或布局不匹配时拒绝。
+v42 通过 `winui3-native.cpp` 共用此实现，正式注册为 Adapter288；独立研究构建仍保留。它不按应用名称、路径或软件名单选择目标；注册表要求精确 Microsoft.UI.Xaml CodeView，进程内还要求 x64、144 DPI、LTR、正常窗口、原生标题、唯一且完整填满客户区的 XAML 岛屿。记事本的多个岛屿不满足条件。ABI、源窗口或布局不匹配时拒绝。
 
 ## 布局与恢复
 
@@ -22,6 +22,8 @@ NativeIslandFrame 还保留了包裹原根和修改原根 Margin 两种对照模
 
 ## 构建与自有窗口验证
 
+正式构建默认启用 `STYLER_WINUI3_NATIVE`，需先按主 README 准备投影头文件。正式 `WinUI3NativeIslandHost` 显式调用 Automatic，并确认最终 Adapter288；它是验证程序，不进入运行包。各契约脚本的 HostDirectory 可指向正式配置目录，真实画图脚本另加 `-ProductionRegistry` 并把 HostDirectory 指向含 Debug/Release 的构建父目录。`test-winui3-auto.ps1` 则直接启动实际控制器，在 GUID 隔离设置与自有 PID 范围验证默认接管和托盘；同权限测试不等于高权限自启验证。
+
 使用已准备好 out/winui3-sdk 的 x64 research/framework-probe 构建目录：
 
 ~~~powershell
@@ -40,7 +42,7 @@ Debug 时指定各脚本对应的 Debug FixtureDirectory、HostDirectory（第�
 
 第三个脚本通过外部研究控制器执行 107 项边界检查，也可指定 -Scenario narrow、keyboard 或 palette。--boundary-sizes 自有窗口仅放开 WM_WINDOWPOSCHANGING 的最小尺寸约束，不改非客户区计算和原按钮能力，以实际到达 125/126px 边界。--interactive 使用显式模板的 XAML Button 接收 CharacterReceived，检查实际字符输入、Tab/Shift+Tab、Enter 及绿灯点击后的焦点；这不是 TextBox、文本编辑或输入法验证。标题属性测试检查 12 项颜色、清空与更新、图标/高度/主题，并把撤销后的完整窗口 PNG 与独立未注入窗口逐字节比较。脚本不裁剪或屏蔽差异。所有脚本只关闭自己创建的 fixture，异常退出测试只终止自己创建并校验路径的研究控制器。
 
-第五个脚本使用 --text-editor 的标准 WinUI TextBox，未替换其默认模板；fixture 提供 IXamlMetadataProvider 和 XamlControlsResources。通过真实 SendInput 验证全文及选区替换、Delete/Backspace、多行、Unicode 字符、Tab/Shift+Tab、Enter，以及跨附加/撤销的 Ctrl+Z/Ctrl+Y。脚本比较文本、选区、焦点、CanUndo/CanRedo、TextChanged 和 Loaded/Unloaded 次数；深浅主题各执行正常撤销和控制器异常退出，共四种场景，每种先运行一个独立且从未注入的原生对照窗口。
+第五个脚本使用 --text-editor 的标准 WinUI TextBox，未替换其默认模板；fixture 提供 IXamlMetadataProvider 和 XamlControlsResources。通过真实 SendInput 验证全文及选区替换、Delete/Backspace、多行、Unicode 字符、Tab/Shift+Tab、Enter，以及跨附加/撤销的 Ctrl+Z/Ctrl+Y。脚本比较文本、选区、焦点、CanUndo/CanRedo、TextChanged 和 Loaded/Unloaded 次数；深浅主题各执行正常撤销和控制器异常退出，共四种场景，每种先运行三个独立且从未注入的原生对照窗口。
 
 没有编辑的接管/撤销要求完整窗口 PNG 与原图一致。有编辑、最大化和主题切换的事务要求最终完整 PNG 与执行同样编辑、原生最大化/还原及主题切换的原生对照一致；不裁剪、遮罩或放宽像素比较。标准 TextBox 的圆角边缘在原生主题/尺寸循环后也可能重新栅格化，因此保留最初图像，但不把它冒充完成该循环后的原生参考。每种场景还要求原 TextBox 始终只加载一次、从未卸载。输入使用正确扫描码和扩展导航键标志，不更改键盘布局或剪贴板；Unicode SendInput 不等于 IME 组合输入验证。输出目录已有 checks.json 或 result.json 时拒绝覆盖。
 

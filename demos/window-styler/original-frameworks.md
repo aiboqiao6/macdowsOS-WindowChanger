@@ -14,7 +14,7 @@
 .\build.ps1 -Configuration Release
 .\build.ps1 -Architecture Win32 -Configuration Release
 .\demos\window-styler\package-original-frameworks.ps1
-# demos/window-styler/out/WindowChanger-v34/WindowStyler.exe
+# demos/window-styler/out/WindowChanger-v42/WindowStyler.exe
 ```
 
 ## 当前边界

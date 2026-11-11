@@ -55,13 +55,26 @@ class NonclientFrame {
             DeleteObject(original_);
     }
     bool Capture(HWND window) {
+        BOOL composition{};
+        if (FAILED(DwmIsCompositionEnabled(&composition)) || (composition && FAILED(DwmFlush()))) {
+            SetLastError(ERROR_RETRY);
+            return false;
+        }
+        // Capture runs on the host GUI thread. Flush that application's queued
+        // surface changes before retaining its original visible footprint;
+        // a flush in the controller would not synchronize the target's batch.
         RECT outer{}, visible{};
         if (!GetWindowRect(window, &outer))
             return false;
         dpi_ = GetDpiForWindow(window);
         if (!dpi_)
             dpi_ = 96;
-        if (SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, &visible, sizeof(visible)))) {
+        const auto boundsResult = DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, &visible, sizeof(visible));
+        if (composition && FAILED(boundsResult)) {
+            SetLastError(ERROR_RETRY);
+            return false;
+        }
+        if (SUCCEEDED(boundsResult)) {
             // DWM always returns physical screen coordinates. GetWindowRect
             // follows the target GUI thread's DPI context; legacy applications
             // therefore need the DWM rectangle converted before subtraction.

@@ -56,6 +56,7 @@
     <ClCompile Include="..\..\demos\window-styler\host.cpp" />
     <ClCompile Include="..\..\demos\window-styler\injector.cpp" />
     <ClCompile Include="..\..\demos\window-styler\inline.cpp" />
+    <ClCompile Include="../../demos/window-styler/winui3-native.cpp" />
     <ClCompile Include="..\..\demos\window-styler\netui-inline.cpp" />
     <ClCompile Include="..\..\demos\window-styler\qt-inline-target.cpp" />
     <ClCompile Include="..\..\demos\window-styler\qt-inline.cpp" />
@@ -267,7 +268,13 @@
     <None Include="../../demos/window-styler/verification-v39.md" />
     <None Include="../../demos/window-styler/verification-v40.md" />
     <None Include="../../demos/window-styler/verification-v41.md" />
+    <None Include="../../demos/window-styler/verification-v42.md" />
+    <None Include="../../demos/window-styler/release-v42.md" />
+    <None Include="../../demos/window-styler/test-winui3-auto.ps1" />
+    <None Include="../../demos/window-styler/pe-imports.h" />
+    <None Include="../../demos/window-styler/pe-imports-tests.cpp" />
     <None Include="../../demos/window-styler/research/winui3-probe/test-paint-document.ps1" />
+    <None Include="../../demos/window-styler/research/winui3-probe/capture-guard.ps1" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

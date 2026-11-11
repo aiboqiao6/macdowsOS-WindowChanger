@@ -1,10 +1,10 @@
-﻿# Window Injector · 原树三灯 v30
+﻿# macdowsOS WindowChanger · 通用窗口样式注入框架
 
 当前 MFC/BCG、Office NetUI、TXGui 的已验证有限 ABI profile 已加入主控制器和完整包。TXGui 原树左侧三灯、原 D2D/输入、持续附加及异常恢复已整合；使用和边界见[原树三灯说明](original-frameworks.md)、[v30 验证](research/frameworks-v30.md)。下文 v13…v29 保留为历史过程；未知版本/布局的兼容范围不扩大。
 
-v34 增加匹配原标题树的 Office 编辑窗口路径，空白 Word、Excel 的持续接管、工具栏避让、原按钮隐藏禁用、窄窗口保护和异常恢复已验证，起始页保留原路径。正式引导版本也包含原树后端修订，避免使用旧安装目录中的后端。[运行说明](release-v34.md) · [验证范围与缺口](verification-v34.md)。最新打包目录为 `out/WindowChanger-v34`，保留 `x86` 目录。
+v34 增加匹配原标题树的 Office 编辑窗口路径，空白 Word、Excel 的持续接管、工具栏避让、原按钮隐藏禁用、窄窗口保护和异常恢复已验证，起始页保留原路径。正式引导版本也包含原树后端修订，避免使用旧安装目录中的后端。[历史运行说明](release-v34.md) · [验证范围与缺口](verification-v34.md)。运行完整包时保留 `x86` 目录。
 
-后续 WinUI 研究增加了独立 XAML 标题岛屿实验，用于保留真实应用原正文的尺寸和屏幕位置；v38 修复初始化和关闭期间的重入，v39 增加标准 TextBox 的真实编辑验证，v40 修复宿主关闭旧岛屿后的访问冲突和新岛屿恢复时的正文偏移，v41 增加真实画图 PNG 绘制、保存、历史和正常/异常恢复的 622 项对照验证。它仍在独立研究目录中，不在正式包或自动接管注册表内。[实验说明](research/winui3-probe/native-island.md) · [最新验证记录](verification-v41.md)。
+v42 验证候选将 WinUI 3 单岛屿原生标题后端接入正式自动探测，共用 v38 至 v41 的事务实现；保留原正文的尺寸和屏幕位置。标准 TextBox 曾出现三个圆角灰度像素各相差 1，原因尚未关闭，不能视为最终版本。后端仍要求精确 ABI、x64、144 DPI、LTR、原生标题及唯一完整客户区岛屿，多岛屿布局仍待适配。完整候选包保留 Qt、WPF 等已有后端。[运行说明](release-v42.md) · [实现与验证方法](research/winui3-probe/native-island.md) · [验证记录](verification-v42.md)。
 
 默认自动接管所有受支持窗口，不设软件黑白名单。本机全部软件及亮暗主题验证仍未完成。手动还原仍暂停全局自动接管，重新开启后对所有支持窗口重试；保留实际 ABI、原布局、所有权和撤销检查。源码仓库：[macdowsOS-WindowChanger](https://github.com/aiboqiao6/macdowsOS-WindowChanger)。v33 的原配色跟踪和旧式 DPI 裁剪修复见[历史证据与缺口](verification-v33.md)。
 
@@ -131,6 +131,8 @@ v11 系统设置截图与逐 HWND 指标：`out/live-v11/settings-final/result.j
 ```
 
 依赖 VS 2022 C++、CMake、.NET SDK/.NET 8 桌面目标包和系统 .NET Framework 编译器。Qt 后端/示例需要匹配的 Qt 开发目录。包内运行时只给自有示例使用，不替换目标进程已有运行时。
+
+x64 正式 WinUI 后端默认启用，还需要生成的 C++/WinRT 投影头文件 `out/winui3-sdk`。`prepare-winui3-sdk.ps1 -PlanOnly` 可查看所需输入：本机 Windows App SDK 2 运行包的 WinMD、Windows SDK 的 cppwinrt/Windows.winmd，以及 WebView2 的 `Microsoft.Web.WebView2.Core.winmd`。准备好匹配元数据后运行该脚本，再打开 VS 解决方案构建；生成目录不提交 Git。只编译其他后端时，构建脚本可加 `-WithoutWinUI3Native`（CMake 对应 `-DSTYLER_WINUI3_NATIVE=OFF`），此时不生成或注册该正式后端。CI 使用此选项生成明确标注的 core-only 包，实际后端见 `runtime-features.json`；它不代替本机完整运行包。
 
 ## 扩展
 

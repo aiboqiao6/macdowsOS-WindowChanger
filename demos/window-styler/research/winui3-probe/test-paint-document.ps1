@@ -2,6 +2,7 @@ param(
  [ValidateSet('Release','Debug','All')][string]$Configuration='Release',
  [ValidateSet('normal','crash','all')][string]$Scenario='all',
  [switch]$WithoutInjection,
+ [switch]$ProductionRegistry,
  [string]$HostDirectory=(Join-Path $PSScriptRoot '../../out/framework-probe-x64/winui-native-research'),
  [string]$OutputDirectory=(Join-Path $PSScriptRoot '../../out/live-v41/paint-document')
 )
@@ -15,6 +16,7 @@ $HostDirectory=(Resolve-Path -LiteralPath $HostDirectory).Path
 [void](New-Item -ItemType Directory -Path $OutputDirectory)
 $OutputDirectory=(Resolve-Path -LiteralPath $OutputDirectory).Path
 Add-Type -AssemblyName System.Drawing,UIAutomationClient,UIAutomationTypes
+. (Join-Path $PSScriptRoot 'capture-guard.ps1')
 Add-Type @'
 using System;using System.Runtime.InteropServices;
 public static class PaintDocumentInput {
@@ -33,6 +35,8 @@ public static class PaintDocumentInput {
  [DllImport("user32.dll")]public static extern bool SetForegroundWindow(IntPtr h);
  [DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();
  [DllImport("user32.dll")]public static extern bool GetCursorPos(out P p);
+ [DllImport("user32.dll")]static extern bool GetPhysicalCursorPos(out P p);
+ [DllImport("user32.dll")]public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr c);
  [DllImport("user32.dll")]public static extern bool SetCursorPos(int x,int y);
  [DllImport("user32.dll")]static extern IntPtr WindowFromPoint(P p);
  [DllImport("user32.dll")]static extern bool IsChild(IntPtr p,IntPtr h);
@@ -49,15 +53,17 @@ public static class PaintDocumentInput {
  [DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern uint RegisterWindowMessage(string n);
  [DllImport("user32.dll")]static extern IntPtr SendMessageTimeout(IntPtr h,uint m,IntPtr w,IntPtr l,uint f,uint t,out UIntPtr r);
  public static long Send(IntPtr h,uint m,long w=0){UIntPtr r;if(SendMessageTimeout(h,m,(IntPtr)w,IntPtr.Zero,2,2000,out r)==IntPtr.Zero)throw new Exception("Owned window timeout");return unchecked((long)r.ToUInt64());}
- public static int[] Geometry(IntPtr h){R o,c;var p=new P();GetWindowRect(h,out o);GetClientRect(h,out c);ClientToScreen(h,ref p);return new[]{o.l,o.t,o.r,o.b,c.l,c.t,c.r,c.b,p.x,p.y};}
- public static void Guard(IntPtr h,uint expected){uint p;GetWindowThreadProcessId(h,out p);if(!IsWindow(h)||p!=expected||GetForegroundWindow()!=h)throw new Exception("Owned Paint identity or foreground changed");foreach(var k in new[]{16,17,18,91,92})if(GetAsyncKeyState(k)<0)throw new Exception("User modifier is held");}
+ static void Physical(){if(SetThreadDpiAwarenessContext((IntPtr)(-4))==IntPtr.Zero)throw new Exception("Cannot establish physical input coordinates");}
+ public static int[] Geometry(IntPtr h){Physical();R o,c;var p=new P();GetWindowRect(h,out o);GetClientRect(h,out c);ClientToScreen(h,ref p);return new[]{o.l,o.t,o.r,o.b,c.l,c.t,c.r,c.b,p.x,p.y};}
+ static void OwnedForeground(IntPtr h,uint expected){uint p;GetWindowThreadProcessId(h,out p);if(!IsWindow(h)||p!=expected||GetForegroundWindow()!=h)throw new Exception("Owned Paint identity or foreground changed");}
+ public static void Guard(IntPtr h,uint expected){Physical();OwnedForeground(h,expected);foreach(var k in new[]{16,17,18,91,92})if(GetAsyncKeyState(k)<0)throw new Exception("User modifier is held");}
  static void Input(I[] a){if(SendInput((uint)a.Length,a,Marshal.SizeOf(typeof(I)))!=a.Length)throw new Exception("Input rejected");}
  static I Key(ushort k,uint flags){return new I{type=1,u=new U{k=new K{vk=k,scan=(ushort)MapVirtualKey(k,0),flags=flags}}};}
- public static void Press(IntPtr h,uint pid,ushort k){Guard(h,pid);try{Input(new[]{Key(17,0)});System.Threading.Thread.Sleep(30);Input(new[]{Key(k,0),Key(k,2)});}finally{Input(new[]{Key(17,2)});}System.Threading.Thread.Sleep(100);}
- static void Point(IntPtr h,int x,int y){var dx=(x-GetSystemMetrics(76))*65535/(GetSystemMetrics(78)-1);var dy=(y-GetSystemMetrics(77))*65535/(GetSystemMetrics(79)-1);Input(new[]{new I{u=new U{m=new M{x=dx,y=dy,flags=0xc001}}}});System.Threading.Thread.Sleep(35);var hit=WindowFromPoint(new P{x=x,y=y});if(hit!=h&&!IsChild(h,hit))throw new Exception("Owned input point is occluded");}
+ public static void Press(IntPtr h,uint pid,ushort k){Guard(h,pid);try{Input(new[]{Key(17,0)});System.Threading.Thread.Sleep(30);OwnedForeground(h,pid);Input(new[]{Key(k,0),Key(k,2)});}finally{Input(new[]{Key(17,2)});}System.Threading.Thread.Sleep(100);}
+ static void Point(IntPtr h,int x,int y){Physical();var width=GetSystemMetrics(78);var height=GetSystemMetrics(79);var px=x-GetSystemMetrics(76);var py=y-GetSystemMetrics(77);if(px<0||py<0||px>=width||py>=height)throw new Exception("Owned input point is outside the virtual desktop");var dx=(int)((2L*px+1)*65536/(2L*width));var dy=(int)((2L*py+1)*65536/(2L*height));Input(new[]{new I{u=new U{m=new M{x=dx,y=dy,flags=0xc001}}}});System.Threading.Thread.Sleep(35);P actual;if(!GetPhysicalCursorPos(out actual)||actual.x!=x||actual.y!=y)throw new Exception("Physical cursor missed owned point: expected "+x+","+y+" actual "+actual.x+","+actual.y);var hit=WindowFromPoint(new P{x=x,y=y});if(hit!=h&&!IsChild(h,hit))throw new Exception("Owned input point is occluded");}
  public static void Park(IntPtr h,uint pid,int x,int y){Guard(h,pid);Point(h,x,y);}
- public static void Click(IntPtr h,uint pid,int x,int y){Guard(h,pid);Point(h,x,y);try{Input(new[]{new I{u=new U{m=new M{flags=2}}}});}finally{Input(new[]{new I{u=new U{m=new M{flags=4}}}});}System.Threading.Thread.Sleep(100);}
- public static void Stroke(IntPtr h,uint pid,int x,int y,int width){Guard(h,pid);Point(h,x,y);try{Input(new[]{new I{u=new U{m=new M{flags=2}}}});for(int i=1;i<=12;i++)Point(h,x+width*i/12,y);}finally{Input(new[]{new I{u=new U{m=new M{flags=4}}}});}System.Threading.Thread.Sleep(120);}
+ public static void Click(IntPtr h,uint pid,int x,int y){Guard(h,pid);Point(h,x,y);Guard(h,pid);try{Input(new[]{new I{u=new U{m=new M{flags=2}}}});}finally{Input(new[]{new I{u=new U{m=new M{flags=4}}}});}System.Threading.Thread.Sleep(100);}
+ public static void Stroke(IntPtr h,uint pid,int x,int y,int width){Guard(h,pid);Point(h,x,y);Guard(h,pid);try{Input(new[]{new I{u=new U{m=new M{flags=2}}}});for(int i=1;i<=12;i++){Guard(h,pid);Point(h,x+width*i/12,y);}}finally{Input(new[]{new I{u=new U{m=new M{flags=4}}}});}System.Threading.Thread.Sleep(120);}
 }
 '@
 [void][PaintDocumentInput]::SetProcessDpiAwarenessContext([IntPtr](-4))
@@ -124,6 +130,8 @@ function Snapshot([string]$name){
  foreach($part in @('window','body')){
   if($part -eq 'window'){$x=$current[0];$y=$current[1];$width=$current[2]-$current[0];$height=$current[3]-$current[1]}
   else{$x=$script:geometry[8];$y=$script:geometry[9];$width=$script:geometry[6];$height=$script:geometry[7]}
+  [PaintDocumentInput]::Guard($script:h,$script:paint.Id)
+  [WindowStylerCaptureGuard]::Check($script:h,$x,$y,$width,$height)
   $b=[Drawing.Bitmap]::new($width,$height);$g=[Drawing.Graphics]::FromImage($b)
   try{$g.CopyFromScreen($x,$y,0,0,$b.Size);$b.Save((Join-Path $script:dir ($name+'-'+$part+'.png')),[Drawing.Imaging.ImageFormat]::Png)}finally{$g.Dispose();$b.Dispose()}
  }
@@ -136,13 +144,21 @@ function StartResearch {
  $script:worker.StartInfo.RedirectStandardOutput=$true;$script:worker.StartInfo.RedirectStandardError=$true
  [void]$script:worker.Start()
  $script:stdout=$script:worker.StandardOutput.ReadToEndAsync();$script:stderr=$script:worker.StandardError.ReadToEndAsync()
- Check (Until {(Owner) -ne [IntPtr]::Zero -or $script:worker.HasExited}) 'research attach completes'
+ Check (Until {$script:worker.HasExited -or ((Owner) -ne [IntPtr]::Zero -and [PaintDocumentInput]::Send($script:h,[PaintDocumentInput]::RegisterWindowMessage('Macdows.WindowStyler.Query.v1')) -eq 0x4d414357)}) 'research attach completes with loaded caption controls'
  Check ((Owner) -ne [IntPtr]::Zero -and [PaintDocumentInput]::Send($script:h,[PaintDocumentInput]::RegisterWindowMessage('Macdows.WindowStyler.Query.v1')) -eq 0x4d414357) 'research lease acknowledges attachment'
- $native=(Select-String -LiteralPath (Join-Path (Split-Path $script:hostPath) 'adapters.ini') -Pattern '^File=(.+)$').Matches.Groups[1].Value
- Check ($native -eq 'WinUI3NativeIsland-0f54df5a5444.dll') 'current native revision selected'
+ $registry=Get-Content -LiteralPath (Join-Path (Split-Path $script:hostPath) 'adapters.ini') -Raw
+ $section=[regex]::Match($registry,'(?ms)^\[Adapter288\]\r?\n(.*?)(?=^\[|\z)').Groups[1].Value
+ $native=[regex]::Match($section,'(?m)^File=([^\r\n]+)').Groups[1].Value
+ Check ($native -match $(if($ProductionRegistry){'^MacdowsWinUI3Native-[0-9a-f]{12}\.dll$'}else{'^WinUI3NativeIsland-[0-9a-f]{12}\.dll$'})) 'selected registry native module has a content-addressed name'
+ Check ([PaintDocumentInput]::GetProp($script:h,'Macdows.WindowStyler.Adapter.v1').ToInt64() -eq 288) 'attachment selected the native island adapter'
  $script:paint.Refresh()
  $loaded=@($script:paint.Modules|Where-Object {$_.FileName -eq (Join-Path (Split-Path $script:hostPath) $native)})
  Check ($loaded.Count -eq 1) 'current native module path verified'
+ $bootstrap=@($script:paint.Modules|Where-Object {$_.ModuleName -match '^MacdowsStyleHook64-.+\.dll$' -and (Split-Path $_.FileName) -ceq (Split-Path $script:hostPath)})
+ Check ($bootstrap.Count -eq 1) 'target loaded bootstrap from the verified host directory'
+ $script:bootstrapModule=$bootstrap[0].ModuleName
+ $script:bootstrapHash=(Get-FileHash -LiteralPath $bootstrap[0].FileName).Hash
+ $script:nativeModule=$native
  $script:nativeHash=(Get-FileHash -LiteralPath $loaded[0].FileName).Hash
 }
 function FinishResearch([bool]$crash){
@@ -254,11 +270,11 @@ try {
    Check ($script:paint.Path -eq $paintPath -and $script:paint.MainWindowTitle.Contains('owned-document.png')) 'close target remains this owned document process'
    [void]$script:paint.CloseMainWindow()
    Check ($script:paint.WaitForExit(5000) -and $script:paint.ExitCode -eq 0) 'owned saved document closes without prompt or crash'
-   $runs.Add([pscustomobject]@{name=$script:run;configuration=$config;role=$role;control=$control;injected=$injected;final=$final;finalWindowHash=$finalWindowHash;nativeReferenceWindowHashes=$referenceWindowHashes.ToArray();nativeHash=$(if($injected){$script:nativeHash}else{$null});hostHash=(Get-FileHash -LiteralPath $script:hostPath).Hash})
+   $runs.Add([pscustomobject]@{name=$script:run;configuration=$config;role=$role;control=$control;injected=$injected;final=$final;finalWindowHash=$finalWindowHash;nativeReferenceWindowHashes=$referenceWindowHashes.ToArray();nativeModule=$(if($injected){$script:nativeModule}else{$null});nativeHash=$(if($injected){$script:nativeHash}else{$null});bootstrapModule=$(if($injected){$script:bootstrapModule}else{$null});bootstrapHash=$(if($injected){$script:bootstrapHash}else{$null});hostHash=(Get-FileHash -LiteralPath $script:hostPath).Hash})
    $script:paint.Dispose();$script:paint=$null
   }
  }}
- [ordered]@{passed=$true;checks=$checks.Count;withoutInjection=[bool]$WithoutInjection;paintVersion=$package[0].Version.ToString();runs=$runs;changedTheme=$false;scope='owned PNG documents; actual Pencil, saves and undo/redo; current installed theme at 144 DPI'}|ConvertTo-Json -Depth 7|Set-Content (Join-Path $OutputDirectory 'result.json') -Encoding utf8
+ [ordered]@{passed=$true;checks=$checks.Count;withoutInjection=[bool]$WithoutInjection;productionRegistry=[bool]$ProductionRegistry;paintVersion=$package[0].Version.ToString();runs=$runs;changedTheme=$false;scope='owned PNG documents; actual Pencil, saves and undo/redo; current installed theme at 144 DPI'}|ConvertTo-Json -Depth 7|Set-Content (Join-Path $OutputDirectory 'result.json') -Encoding utf8
 }catch{
  ($_|Out-String)+$_.ScriptStackTrace|Set-Content (Join-Path $OutputDirectory 'failure.txt') -Encoding utf8
  throw

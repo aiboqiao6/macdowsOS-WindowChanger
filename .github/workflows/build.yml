@@ -15,12 +15,14 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - name: Build both architectures and configurations
+      # Hosted runners lack the locally verified WinUI metadata and Qt SDK.
+      # This artifact is explicitly a core-only build, not the full local package.
+      - name: Build core for both architectures and configurations
         shell: pwsh
         run: |
           foreach ($arch in @('x64','Win32')) {
             foreach ($config in @('Release','Debug')) {
-              ./build.ps1 -Architecture $arch -Configuration $config
+              ./build.ps1 -Architecture $arch -Configuration $config -WithoutWinUI3Native
               if ($LASTEXITCODE -ne 0) { throw "Build failed: $arch $config" }
             }
           }
@@ -32,15 +34,15 @@ jobs:
           $ctestTool=Join-Path (Split-Path $cmakeTool) ctest.exe
           foreach ($arch in @('x64','Win32')) {
             foreach ($config in @('Release','Debug')) {
-              & $ctestTool --test-dir "demos/window-styler/out/vs-$arch" -C $config --output-on-failure -R '^(controller_preferences_and_retry|original_framework_registry|strict_direct_policy|target_local_thread_bootstrap)$'
+              & $ctestTool --test-dir "demos/window-styler/out/vs-$arch" -C $config --output-on-failure -R '^(native_pe_import_boundaries|controller_preferences_and_retry|original_framework_registry|strict_direct_policy|target_local_thread_bootstrap)$'
               if ($LASTEXITCODE -ne 0) { throw "Contracts failed: $arch $config" }
             }
           }
-      - name: Package x64 controller and x86 helper
+      - name: Package core x64 controller and x86 helper
         shell: pwsh
-        run: ./demos/window-styler/package-original-frameworks.ps1
+        run: ./demos/window-styler/package-original-frameworks.ps1 -OutputDirectory ./demos/window-styler/out/WindowChanger-v42-core-only
       - uses: actions/upload-artifact@v4
         with:
-          name: WindowChanger-v33
-          path: demos/window-styler/out/WindowChanger-v33.zip
+          name: WindowChanger-v42-core-only
+          path: demos/window-styler/out/WindowChanger-v42-core-only.zip
           if-no-files-found: error

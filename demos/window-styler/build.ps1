@@ -7,7 +7,8 @@ param(
     [switch]$Run,
     [switch]$Test,
     [string]$QtRoot,
-    [switch]$WpfSamples
+    [switch]$WpfSamples,
+    [switch]$WithoutWinUI3Native
 )
 $ErrorActionPreference = 'Stop'
 $demoRoot = $PSScriptRoot
@@ -23,6 +24,7 @@ if ($Action -eq 'Clean') {
     return
 }
 $configureOptions = @('-DSTYLER_QT_SAMPLES=OFF', '-DSTYLER_WPF_SAMPLES=OFF')
+$configureOptions += '-DSTYLER_WINUI3_NATIVE=' + $(if ($WithoutWinUI3Native) { 'OFF' } else { 'ON' })
 if ($QtRoot) { $configureOptions += @('-DSTYLER_QT_SAMPLES=ON', "-DCMAKE_PREFIX_PATH=$QtRoot") }
 if ($WpfSamples) { $configureOptions += '-DSTYLER_WPF_SAMPLES=ON' }
 & $cmakePath -S $demoRoot -B $buildDirectory -G 'Visual Studio 17 2022' -A $Architecture @configureOptions

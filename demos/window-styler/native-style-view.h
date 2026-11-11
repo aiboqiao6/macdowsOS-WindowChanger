@@ -9,6 +9,7 @@
 #include <commctrl.h>
 #include "nonclient-frame.h"
 #include "caption-colors.h"
+#include "pe-imports.h"
 
 namespace styler::style_view {
 inline constexpr wchar_t StyleProperty[] = L"Macdows.WindowStyler.NetUI.SystemMenu.v1";
@@ -234,49 +235,24 @@ inline bool AcquireReads() {
         if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(item.modBaseAddr),
                                 &retained))
             continue;
-        auto base = reinterpret_cast<BYTE *>(retained);
-        auto dos = reinterpret_cast<IMAGE_DOS_HEADER *>(base);
-        auto nt = reinterpret_cast<IMAGE_NT_HEADERS *>(base + dos->e_lfanew);
         auto count = slots.size();
-        auto patch = [&](DWORD iat, DWORD names) {
-            if (!iat || !names)
-                return;
-            auto name = reinterpret_cast<IMAGE_THUNK_DATA *>(base + names);
-            auto slot = reinterpret_cast<IMAGE_THUNK_DATA *>(base + iat);
-            for (; name->u1.AddressOfData; ++name, ++slot) {
-                if (IMAGE_SNAP_BY_ORDINAL(name->u1.Ordinal))
-                    continue;
-                auto symbol = reinterpret_cast<IMAGE_IMPORT_BY_NAME *>(base + name->u1.AddressOfData)->Name;
-                for (auto &e : entries)
-                    if (strcmp(reinterpret_cast<char *>(symbol), e.name) == 0) {
-                        auto address = reinterpret_cast<void **>(&slot->u1.Function);
-                        // Do not replace unresolved delay thunks or another component's hook.
-                        if (*address != e.original)
-                            continue;
-                        DWORD old{};
-                        if (!VirtualProtect(address, sizeof(void *), PAGE_READWRITE, &old)) {
-                            ok = false;
-                            continue;
-                        }
-                        if (InterlockedCompareExchangePointer(address, e.replacement, e.original) == e.original)
-                            slots.push_back({address, e.replacement, e.original});
-                        DWORD ignored{};
-                        VirtualProtect(address, sizeof(void *), old, &ignored);
+        NativeImportImage(retained, item.modBaseSize).Visit([&](std::string_view symbol, void **address) {
+            for (auto &e : entries)
+                if (symbol == e.name) {
+                    // Do not replace unresolved delay thunks or another component's hook.
+                    if (*address != e.original)
+                        continue;
+                    DWORD old{};
+                    if (!VirtualProtect(address, sizeof(void *), PAGE_READWRITE, &old)) {
+                        ok = false;
+                        continue;
                     }
-            }
-        };
-        auto imports = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-        if (imports.VirtualAddress)
-            for (auto d = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR *>(base + imports.VirtualAddress); d->Name; ++d)
-                patch(d->FirstThunk, d->OriginalFirstThunk);
-        struct Delay {
-            DWORD attributes, name, handle, iat, names, bound, unload, time;
-        };
-        auto delay = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT];
-        if (delay.VirtualAddress)
-            for (auto d = reinterpret_cast<Delay *>(base + delay.VirtualAddress); d->name; ++d)
-                if (d->attributes & 1)
-                    patch(d->iat, d->names);
+                    if (InterlockedCompareExchangePointer(address, e.replacement, e.original) == e.original)
+                        slots.push_back({address, e.replacement, e.original});
+                    DWORD ignored{};
+                    VirtualProtect(address, sizeof(void *), old, &ignored);
+                }
+        });
         if (slots.size() != count)
             modules.push_back(retained);
         else

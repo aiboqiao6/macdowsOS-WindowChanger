@@ -1053,9 +1053,10 @@ DWORD Attach(HWND window, HWND controller, Adapter adapter) {
     }
     DwmGetWindowAttribute(window, DWMWA_NCRENDERING_ENABLED, &state->originalRendering, sizeof(BOOL));
     if (!state->frame.Capture(window)) {
+        const auto error = GetLastError();
         CloseHandle(state->controllerProcess);
         delete state;
-        return ERROR_NOT_ENOUGH_MEMORY;
+        return error ? error : ERROR_INVALID_DATA;
     }
     state->hasCorner = SUCCEEDED(DwmGetWindowAttribute(window, CornerAttribute, &state->corner, sizeof(DWORD)));
     if (adapter == Adapter::Native)

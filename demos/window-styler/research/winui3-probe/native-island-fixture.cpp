@@ -42,6 +42,7 @@ void Failure(const char *stage, HRESULT hr, winrt::hstring const &message = {}) 
 
 #include "native-island-frame.h"
 #include <memory>
+#include <bit>
 
 struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
     x::Markup::IXamlMetadataProvider metadata{nullptr};
@@ -88,6 +89,65 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
     LRESULT faultDetachResult{};
     bool cancelNextClose{};
     unsigned cancelledCloses{};
+    void TreeGeometry() {
+        wchar_t path[32768]{};
+        GetModuleFileNameW(nullptr, path, 32768);
+        std::wstring file(path);
+        file.resize(file.find_last_of(L'\\') + 1);
+        std::ofstream log(file + L"native-island-tree-" + std::to_wstring(GetCurrentProcessId()) + L".txt");
+        unsigned budget = 400;
+        auto values = [&](auto... v) { ((log << ' ' << std::hex << std::bit_cast<uint64_t>(double(v))), ...); };
+        auto brush = [&](x::Media::Brush const &b) {
+            if (!b) {
+                log << " null";
+                return;
+            }
+            log << ' ' << winrt::to_string(winrt::get_class_name(b));
+            if (auto solid = b.try_as<x::Media::SolidColorBrush>()) {
+                auto color = solid.Color();
+                log << ' ' << std::hex
+                    << ((uint32_t(color.A) << 24) | (uint32_t(color.R) << 16) | (uint32_t(color.G) << 8) | color.B);
+            }
+            values(b.Opacity());
+        };
+        auto trace = [&](auto &&recurse, x::DependencyObject const &node, unsigned depth) -> void {
+            if (!node || !budget-- || depth > 30)
+                return;
+            log << std::string(depth, ' ') << winrt::to_string(winrt::get_class_name(node));
+            if (auto e = node.try_as<x::FrameworkElement>()) {
+                auto p = e.TransformToVisual(body).TransformPoint({0, 0});
+                log << " name=" << winrt::to_string(e.Name()) << " geometry";
+                values(p.X, p.Y, e.ActualWidth(), e.ActualHeight(), e.Width(), e.Height(), e.MinWidth(), e.MinHeight(),
+                       e.MaxWidth(), e.MaxHeight(), e.Opacity());
+                auto margin = e.Margin();
+                values(margin.Left, margin.Top, margin.Right, margin.Bottom);
+                log << " theme=" << int(e.ActualTheme()) << " round=" << e.UseLayoutRounding()
+                    << " visible=" << int(e.Visibility()) << " transform=";
+                if (auto t = e.RenderTransform())
+                    log << winrt::to_string(winrt::get_class_name(t));
+            }
+            if (auto border = node.try_as<c::Border>()) {
+                auto radius = border.CornerRadius();
+                log << " corner";
+                values(radius.TopLeft, radius.TopRight, radius.BottomRight, radius.BottomLeft);
+                auto thickness = border.BorderThickness();
+                log << " border";
+                values(thickness.Left, thickness.Top, thickness.Right, thickness.Bottom);
+                auto padding = border.Padding();
+                log << " padding";
+                values(padding.Left, padding.Top, padding.Right, padding.Bottom);
+                log << " background";
+                brush(border.Background());
+                log << " stroke";
+                brush(border.BorderBrush());
+            }
+            log << '\n';
+            const auto count = x::Media::VisualTreeHelper::GetChildrenCount(node);
+            for (int i = 0; i < count && budget; ++i)
+                recurse(recurse, x::Media::VisualTreeHelper::GetChild(node, i), depth + 1);
+        };
+        trace(trace, body, 0);
+    }
     void ReplaceRoot() {
         auto light = body.ActualTheme() == x::ElementTheme::Light;
         body = c::Grid();
@@ -354,6 +414,20 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
             return document && document.CanRedo();
         case 61:
             return document ? static_cast<int>(document.ActualTheme()) : -1;
+        case 62:
+            return document ? std::bit_cast<uint32_t>(document.TransformToVisual(body).TransformPoint({0, 0}).X) : -1;
+        case 63:
+            return document ? std::bit_cast<uint32_t>(document.TransformToVisual(body).TransformPoint({0, 0}).Y) : -1;
+        case 64:
+            return std::bit_cast<int64_t>(body.ActualWidth());
+        case 65:
+            return std::bit_cast<int64_t>(body.ActualHeight());
+        case 66:
+            return std::bit_cast<int64_t>(body.XamlRoot().RasterizationScale());
+        case 67:
+            return document ? std::bit_cast<int64_t>(document.ActualWidth()) : -1;
+        case 68:
+            return document ? std::bit_cast<int64_t>(document.ActualHeight()) : -1;
         case 70:
             return sourceGeneration;
         case 71:
@@ -364,6 +438,8 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
             return retiredDocument ? retiredDocument->unloads : -1;
         case 74:
             return rebuildPending;
+        case 75:
+            return 1;
         default:
             return 0;
         }
@@ -421,6 +497,22 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
                     winrt::check_bool(self->document && self->document.Focus(x::FocusState::Programmatic));
                 } else if (wp >= 22 && wp <= 24) {
                     self->Rebuild(static_cast<unsigned>(wp));
+                } else if (wp == 25) {
+                    // Diagnostic: a native host can resize its own retained
+                    // viewport and back without any title injection. Preserve
+                    // the root, input state and exact final viewport.
+                    winrt::check_bool(!self->native && self->source);
+                    RECT client{};
+                    winrt::check_bool(GetClientRect(h, &client));
+                    auto bridge = self->source.SiteBridge();
+                    bridge.MoveAndResize({0, 0, client.right, client.bottom + MulDiv(30, self->dpi, 96)});
+                    self->body.UpdateLayout();
+                    bridge.MoveAndResize({0, 0, client.right, client.bottom});
+                    self->body.UpdateLayout();
+                } else if (wp == 26) {
+                    self->TreeGeometry();
+                } else if (wp == 27) {
+                    self->body.UpdateLayout();
                 }
                 return 0;
             }

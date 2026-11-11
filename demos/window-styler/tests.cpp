@@ -850,6 +850,9 @@ int wmain(int argc, wchar_t **argv) {
         for (HWND window : windows)
             Send(window, WM_CLOSE);
         Check(WaitForSingleObject(target.process.hProcess, 4000) == WAIT_OBJECT_0, "framework target exits cleanly");
+        DWORD exitCode{STILL_ACTIVE};
+        Check(GetExitCodeProcess(target.process.hProcess, &exitCode) && exitCode == 0,
+              "framework target returns success without an unhandled exception");
         DestroyWindow(controller);
         return failures ? 1 : 0;
     }
@@ -1108,6 +1111,11 @@ int wmain(int argc, wchar_t **argv) {
             RECT before{}, after{};
             GetClientRect(window, &before);
             LONG_PTR style = GetWindowLongPtrW(window, GWL_STYLE);
+            RECT nativeVisible{};
+            const auto nativeBoundsResult =
+                DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, &nativeVisible, sizeof(nativeVisible));
+            BOOL nativeRendering{};
+            DwmGetWindowAttribute(window, DWMWA_NCRENDERING_ENABLED, &nativeRendering, sizeof(nativeRendering));
             auto paints = reinterpret_cast<UINT_PTR>(GetPropW(window, styler::SamplePaintProperty));
             Check(styler::Inspect(window).supported, "window model has an eligible adapter");
             Check(session.Apply(window).ok, "attach the selected adapter");
@@ -1151,7 +1159,10 @@ int wmain(int argc, wchar_t **argv) {
                           << ',' << visible.bottom << " client-origin=" << origin.x << ',' << origin.y
                           << " client-size=" << after.right << ',' << after.bottom << " dpi=" << GetDpiForWindow(window)
                           << " allowances=" << leftAllowance << ',' << rightAllowance << ',' << bottomAllowance
-                          << std::endl;
+                          << " native-bounds-hr=" << std::hex << nativeBoundsResult << std::dec
+                          << " native-visible=" << nativeVisible.left << ',' << nativeVisible.top << ','
+                          << nativeVisible.right << ',' << nativeVisible.bottom
+                          << " native-rendering=" << nativeRendering << std::endl;
             Check(origin.x >= visible.left && origin.x - visible.left <= leftAllowance &&
                       visible.right >= origin.x + after.right &&
                       visible.right - origin.x - after.right <= rightAllowance,

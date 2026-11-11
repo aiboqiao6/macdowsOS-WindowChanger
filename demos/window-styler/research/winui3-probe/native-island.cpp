@@ -1,4 +1,4 @@
-// Bounded research adapter. The product registry never references this DLL.
+// Shared guarded native-title adapter and bounded verification host.
 #ifdef WINUI3_NATIVE_ISLAND_DLL
 #define MacdowsAdapterProbeV1 ProductWinUI3FixtureProbe
 #define MacdowsAdapterAttachV1 ProductWinUI3FixtureAttach
@@ -138,7 +138,7 @@ LRESULT CALLBACK NativeProcedure(HWND h, UINT m, WPARAM wp, LPARAM lp, UINT_PTR,
     }
     if (m == styler::QueryMessage())
         return !s->attaching && !s->releasing && !s->frame->operationDepth && s->frame->active && !s->frame->changing &&
-                       !s->frame->invalid && s->frame->OwnsSource()
+                       !s->frame->invalid && s->frame->OwnsSource() && s->frame->InputReady()
                    ? styler::Acknowledged
                    : 0;
     if (m == styler::DetachMessage()) {
@@ -264,7 +264,11 @@ int wmain(int argc, wchar_t **argv) {
     int exit = 0;
     {
         styler::Session session(owner);
+#ifdef WINUI3_NATIVE_AUTOMATIC
+        auto result = session.Apply(h, styler::Adapter::Automatic);
+#else
         auto result = session.Apply(h, static_cast<styler::Adapter>(288));
+#endif
         std::cout << "attached=" << result.ok << '\n';
         if (!result.ok) {
             const auto size =
@@ -276,6 +280,13 @@ int wmain(int argc, wchar_t **argv) {
             std::cerr << "attach-detail=" << detail << '\n';
             exit = ERROR_NOT_SUPPORTED;
         } else {
+            const auto selected = reinterpret_cast<UINT_PTR>(GetPropW(h, styler::AdapterProperty));
+            std::cout << "adapter=" << selected << '\n';
+            if (selected != 288) {
+                session.RestoreAll();
+                DestroyWindow(owner);
+                return ERROR_INVALID_DATA;
+            }
             const auto deadline = GetTickCount64() + duration * 1000;
             while (GetTickCount64() < deadline && IsWindow(h) && session.Owns(h)) {
                 MsgWaitForMultipleObjects(0, nullptr, FALSE, 50, QS_ALLINPUT);

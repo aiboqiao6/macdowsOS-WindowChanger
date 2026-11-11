@@ -2,15 +2,25 @@ param(
  [string]$FixtureDirectory=(Join-Path $PSScriptRoot '../../out/framework-probe-x64/winui-native-fixture/Release'),
  [string]$HostDirectory=(Join-Path $PSScriptRoot '../../out/framework-probe-x64/winui-native-research/Release'),
  [string]$OutputDirectory=(Join-Path $PSScriptRoot '../../out/live-v39/native-text-Release'),
- [ValidateSet('all','dark-normal','dark-crash','light-normal','light-crash')][string]$Scenario='all'
+ [ValidateSet('all','dark-normal','dark-crash','light-normal','light-crash')][string]$Scenario='all',
+ [switch]$WithoutInjection,
+ [switch]$DetailedGeometry,
+ [switch]$NativeViewportCycle,
+ [switch]$TreeGeometry,
+ [switch]$DiagnoseFailure,
+ [string]$FailureReader,
+ [switch]$ReadNativeComposition
 )
 $ErrorActionPreference='Stop'
+if($NativeViewportCycle -and -not $WithoutInjection){throw 'Viewport diagnostic is only available without injection'}
+if($ReadNativeComposition -and (-not $WithoutInjection -or -not $FailureReader)){throw 'Native composition diagnostic requires WithoutInjection and FailureReader'}
 $fixturePath=Join-Path (Resolve-Path -LiteralPath $FixtureDirectory).Path 'WinUI3NativeIslandFixture.exe'
 $hostPath=Join-Path (Resolve-Path -LiteralPath $HostDirectory).Path 'WinUI3NativeIslandHost.exe'
 if((Test-Path (Join-Path $OutputDirectory 'checks.json')) -or (Test-Path (Join-Path $OutputDirectory 'result.json'))){throw 'Use a new output directory to preserve earlier evidence'}
 [void](New-Item -ItemType Directory -Path $OutputDirectory -Force)
 $OutputDirectory=(Resolve-Path -LiteralPath $OutputDirectory).Path
 Add-Type -AssemblyName System.Drawing
+. (Join-Path $PSScriptRoot 'capture-guard.ps1')
 Add-Type @'
 using System;using System.Runtime.InteropServices;
 public static class NativeIslandText {
@@ -29,6 +39,8 @@ public static class NativeIslandText {
  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern bool GetCursorPos(out P p);
+ [DllImport("user32.dll")] public static extern bool GetPhysicalCursorPos(out P p);
+ [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr c);
  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
  [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(P p);
  [DllImport("user32.dll")] public static extern bool IsChild(IntPtr p,IntPtr h);
@@ -44,14 +56,15 @@ public static class NativeIslandText {
  public static long Send(IntPtr h,uint m,long w=0){UIntPtr r;if(SendMessageTimeout(h,m,(IntPtr)w,IntPtr.Zero,2,2000,out r)==IntPtr.Zero)throw new Exception("Fixture timeout");return unchecked((long)r.ToUInt64());}
  public static IntPtr Find(uint pid){IntPtr result=IntPtr.Zero;EnumWindows((h,l)=>{uint p;GetWindowThreadProcessId(h,out p);if(p==pid&&GetProp(h,"Macdows.Research.NativeIsland.Owned")!=IntPtr.Zero){result=h;return false;}return true;},IntPtr.Zero);return result;}
  public static int[] Geometry(IntPtr h){R o,c;var p=new P();GetWindowRect(h,out o);GetClientRect(h,out c);ClientToScreen(h,ref p);return new[]{o.l,o.t,o.r,o.b,c.l,c.t,c.r,c.b,p.x,p.y};}
- public static void Guard(IntPtr h){if(GetForegroundWindow()!=h)throw new Exception("Owned fixture is not foreground");uint pid;GetWindowThreadProcessId(h,out pid);if(Find(pid)!=h)throw new Exception("Input target is not owned");foreach(var k in new[]{16,17,18,91,92})if(GetAsyncKeyState(k)<0)throw new Exception("User modifier key is held");}
+ public static void OwnedForeground(IntPtr h){var actual=GetForegroundWindow();if(actual!=h){uint foreignPid;GetWindowThreadProcessId(actual,out foreignPid);throw new Exception("Owned fixture is not foreground: HWND 0x"+actual.ToInt64().ToString("x")+" PID "+foreignPid);}uint pid;GetWindowThreadProcessId(h,out pid);if(Find(pid)!=h)throw new Exception("Input target is not owned");}
+ public static void Guard(IntPtr h){if(SetThreadDpiAwarenessContext((IntPtr)(-4))==IntPtr.Zero)throw new Exception("Cannot establish physical input coordinates");OwnedForeground(h);foreach(var k in new[]{16,17,18,91,92})if(GetAsyncKeyState(k)<0)throw new Exception("User modifier key is held");}
  // WinUI text selection needs the physical modifier scan code. Navigation keys
  // also carry the extended-key flag, matching a real keyboard's event sequence.
  static I Key(ushort vk,ushort scan,uint flags){if(vk!=0){scan=(ushort)MapVirtualKey(vk,0);if(vk>=33&&vk<=46)flags|=1;}return new I{type=1,u=new U{k=new K{vk=vk,scan=scan,flags=flags}}};}
  static void Input(I[] values){if(SendInput((uint)values.Length,values,Marshal.SizeOf(typeof(I)))!=values.Length)throw new Exception("Input rejected");}
  public static void Type(IntPtr h,string text){Guard(h);var a=new I[text.Length*2];for(int i=0;i<text.Length;i++){a[2*i]=Key(0,text[i],4);a[2*i+1]=Key(0,text[i],6);}Input(a);}
- public static void Press(IntPtr h,ushort key,bool ctrl=false,bool shift=false){Guard(h);try{if(ctrl)Input(new[]{Key(17,0,0)});if(shift)Input(new[]{Key(16,0,0)});System.Threading.Thread.Sleep(30);Input(new[]{Key(key,0,0),Key(key,0,2)});System.Threading.Thread.Sleep(80);}finally{if(shift)Input(new[]{Key(16,0,2)});if(ctrl)Input(new[]{Key(17,0,2)});}}
- public static void Green(IntPtr h){Guard(h);var g=Geometry(h);var p=new P{x=87,y=(int)(Send(h,0x804a,3)-g[9])/2};ClientToScreen(h,ref p);SetCursorPos(p.x,p.y);System.Threading.Thread.Sleep(100);var hit=WindowFromPoint(p);if(hit!=h&&!IsChild(h,hit))throw new Exception("Owned caption is occluded");Input(new[]{new I{u=new U{m=new M{flags=2}}},new I{u=new U{m=new M{flags=4}}}});}
+ public static void Press(IntPtr h,ushort key,bool ctrl=false,bool shift=false){Guard(h);try{if(ctrl)Input(new[]{Key(17,0,0)});if(shift)Input(new[]{Key(16,0,0)});System.Threading.Thread.Sleep(30);OwnedForeground(h);Input(new[]{Key(key,0,0),Key(key,0,2)});System.Threading.Thread.Sleep(80);}finally{if(shift)Input(new[]{Key(16,0,2)});if(ctrl)Input(new[]{Key(17,0,2)});}}
+ public static void Green(IntPtr h){Guard(h);var g=Geometry(h);var p=new P{x=87,y=(int)(Send(h,0x804a,3)-g[9])/2};ClientToScreen(h,ref p);if(!SetCursorPos(p.x,p.y))throw new Exception("Cannot position owned caption cursor");System.Threading.Thread.Sleep(100);P actual;if(!GetPhysicalCursorPos(out actual)||actual.x!=p.x||actual.y!=p.y)throw new Exception("Physical caption cursor mismatch: expected "+p.x+","+p.y+" actual "+actual.x+","+actual.y);var hit=WindowFromPoint(p);if(hit!=h&&!IsChild(h,hit))throw new Exception("Owned caption is occluded");Guard(h);Input(new[]{new I{u=new U{m=new M{flags=2}}},new I{u=new U{m=new M{flags=4}}}});}
 }
 '@
 [void][NativeIslandText]::SetProcessDpiAwarenessContext([IntPtr](-4))
@@ -81,9 +94,22 @@ function Press([int]$key,[bool]$ctrl=$false,[bool]$shift=$false){[NativeIslandTe
 function TextInput([string]$s){[NativeIslandText]::Type($script:h,$s);Start-Sleep -Milliseconds 100}
 function SelectFirst([int]$n){Press 36 $true;for($i=0;$i -lt $n;$i++){Press 39 $false $true}}
 function State {
- [ordered]@{text=(TextValue);start=(Metric 52);length=(Metric 53);undo=(Metric 59);redo=(Metric 60);focus=(Metric 50);islandFocus=(Metric 43);loads=(Metric 54);unloads=(Metric 55);changes=(Metric 56);width=(Metric 57);height=(Metric 58)}
+ $state=[ordered]@{text=(TextValue);start=(Metric 52);length=(Metric 53);undo=(Metric 59);redo=(Metric 60);focus=(Metric 50);islandFocus=(Metric 43);loads=(Metric 54);unloads=(Metric 55);changes=(Metric 56);width=(Metric 57);height=(Metric 58)}
+ if($DetailedGeometry){
+  if((Metric 64) -le 0){throw 'Detailed geometry requires the diagnostic fixture metrics'}
+  foreach($entry in @(@('documentXBits',62),@('documentYBits',63),@('bodyWidthBits',64),@('bodyHeightBits',65),@('rasterScaleBits',66),@('documentWidthBits',67),@('documentHeightBits',68))){$state[$entry[0]]=Metric $entry[1]}
+ }
+ return $state
 }
-function SaveState([string]$name){$s=State;$s|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $OutputDirectory ($run+'-'+$name+'.json')) -Encoding utf8;return $s}
+function SaveState([string]$name){
+ $s=State;$s|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $OutputDirectory ($run+'-'+$name+'.json')) -Encoding utf8
+ if($TreeGeometry){
+  if((Metric 75) -ne 1){throw 'Tree geometry requires the diagnostic fixture'}
+  if(([NativeIslandText]::Send($script:h,0x8049,26)) -ne 0){throw 'Tree diagnostic failed'}
+  Copy-Item -LiteralPath (Join-Path $FixtureDirectory ('native-island-tree-'+$script:fixture.Id+'.txt')) -Destination (Join-Path $OutputDirectory ($run+'-'+$name+'-tree.txt'))
+ }
+ return $s
+}
 function SameState($before,[string]$name){$after=SaveState $name;Check (($before|ConvertTo-Json -Compress) -ceq ($after|ConvertTo-Json -Compress)) $name}
 function ActionFocus {
  Press 9
@@ -99,6 +125,8 @@ function Shot([string]$name){
  $g=[NativeIslandText]::Geometry($script:h)
  [void][NativeIslandText]::SetCursorPos(($g[0]+$g[2])/2,($g[1]+20))
  Start-Sleep -Milliseconds 700
+ [NativeIslandText]::Guard($script:h)
+ [WindowStylerCaptureGuard]::Check($script:h,$g[0],$g[1],($g[2]-$g[0]),($g[3]-$g[1]))
  $b=[Drawing.Bitmap]::new($g[2]-$g[0],$g[3]-$g[1]);$d=[Drawing.Graphics]::FromImage($b)
  try{$d.CopyFromScreen($g[0],$g[1],0,0,$b.Size);$b.Save((Join-Path $OutputDirectory ($run+'-'+$name+'.png')),[Drawing.Imaging.ImageFormat]::Png)}finally{$d.Dispose();$b.Dispose()}
 }
@@ -114,7 +142,8 @@ function StartResearch {
  $script:worker.StartInfo.RedirectStandardOutput=$true;$script:worker.StartInfo.RedirectStandardError=$true
  [void]$script:worker.Start()
  $script:stdout=$script:worker.StandardOutput.ReadToEndAsync();$script:stderr=$script:worker.StandardError.ReadToEndAsync()
- Check (Until {(Owner) -ne [IntPtr]::Zero -or $script:worker.HasExited}) 'research attach completes'
+ Check (Until {$script:worker.HasExited -or ((Owner) -ne [IntPtr]::Zero -and ([NativeIslandText]::Send($script:h,[NativeIslandText]::RegisterWindowMessage('Macdows.WindowStyler.Query.v1'))) -eq 0x4d414357)}) 'research attach completes'
+ Check (-not $script:worker.HasExited -and ([NativeIslandText]::Send($script:h,[NativeIslandText]::RegisterWindowMessage('Macdows.WindowStyler.Query.v1'))) -eq 0x4d414357) 'loaded caption confirms input readiness before test interaction'
  Check ((Owner) -ne [IntPtr]::Zero -and (Metric 10) -eq 0 -and (Metric 9) -eq 1) 'external research owns lease and original root stays installed'
 }
 function FinishResearch([int]$expected){
@@ -137,10 +166,13 @@ try {
  foreach($matrix in @('dark-normal','dark-crash','light-normal','light-crash')){
   if($Scenario -ne 'all' -and $Scenario -ne $matrix){continue}
   # Replay the same edits, native maximize/restore and theme cycle in a separate,
-  # never-injected window. Standard TextBox rounded edges can be rerasterized by
-  # that cycle even without injection; compare the complete final images exactly.
-  foreach($nativeControl in @($true,$false)){
-  $script:run=$matrix+$(if($nativeControl){'-control'}else{''});$light=$matrix.StartsWith('light');$crash=$matrix.EndsWith('crash')
+  # never-injected window. Compare the complete final images exactly; retain
+  # any difference as a failure until its cause is established.
+  $nativePixelHashes=[Collections.Generic.List[string]]::new()
+  $passes=@('control','control2','control3');if(-not $WithoutInjection){$passes+='target'}
+  foreach($pass in $passes){
+  $nativeControl=$pass -ne 'target'
+  $script:run=$matrix+$(if($nativeControl){'-'+$pass}else{''});$light=$matrix.StartsWith('light');$crash=$matrix.EndsWith('crash')
   $script:fixture=Start-Process -FilePath $fixturePath -ArgumentList ('--text-editor --'+$(if($light){'light'}else{'dark'})) -WindowStyle Hidden -PassThru
   Check (Until {[NativeIslandText]::Find($script:fixture.Id) -ne [IntPtr]::Zero}) 'owned text fixture starts'
   $script:h=[NativeIslandText]::Find($script:fixture.Id)
@@ -229,10 +261,20 @@ try {
   Check ((Owner) -eq [IntPtr]::Zero -and (Metric 10) -eq 1 -and (Metric 9) -eq 1) 'rollback restores native title and preserves original root'
   SameState $rollback 'rollback-preserves-editor-state'
   Check (($geometry -join ',') -eq ([NativeIslandText]::Geometry($script:h) -join ',')) 'rollback restores native outer and client geometry'
+  if($NativeViewportCycle){Command 25;SameState $rollback 'native viewport round trip preserves editor and floating geometry'}
   Shot 'native-restored'
-  if($nativeControl){$reference=SaveState 'native-reference'}else{
+  if($nativeControl){
+   $reference=SaveState 'native-reference';$nativePixelHashes.Add((Get-FileHash (Join-Path $OutputDirectory ($run+'-native-restored.png'))).Hash)
+   if($ReadNativeComposition){
+    $readerPath=(Resolve-Path -LiteralPath $FailureReader).Path
+    & $readerPath $script:h.ToInt64().ToString() *> (Join-Path $OutputDirectory ($run+'-native-composition.txt'))
+    Check ($LASTEXITCODE -eq 0) 'owned native composition diagnostic completes'
+    Shot 'native-after-composition-read'
+    Check ((Get-FileHash (Join-Path $OutputDirectory ($run+'-native-restored.png'))).Hash -eq (Get-FileHash (Join-Path $OutputDirectory ($run+'-native-after-composition-read.png'))).Hash) 'native composition getters preserve complete prior pixels'
+   }
+  }else{
    SameState $reference 'final-editor-state-matches-independent-native-control'
-   Check ((Get-FileHash (Join-Path $OutputDirectory ($matrix+'-control-native-restored.png'))).Hash -eq (Get-FileHash (Join-Path $OutputDirectory ($run+'-native-restored.png'))).Hash) 'complete final window pixels match independent native control without masks or crops'
+   Check ($nativePixelHashes -contains (Get-FileHash (Join-Path $OutputDirectory ($run+'-native-restored.png'))).Hash) 'complete final window pixels exactly match a prior independent native control without masks or crops'
   }
   EditorFocus
   Press 90 $true
@@ -249,10 +291,39 @@ try {
   $script:fixture.Dispose();$script:fixture=$null
   }
  }
- [ordered]@{passed=$true;scenario=$Scenario;checks=$checks.Count;fixtureHash=(Get-FileHash $fixturePath).Hash;hostHash=(Get-FileHash $hostPath).Hash;scope='owned standard TextBox; 144 DPI; Unicode SendInput is not IME verification'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
+ [ordered]@{passed=$true;scenario=$Scenario;checks=$checks.Count;withoutInjection=[bool]($WithoutInjection -and -not $ReadNativeComposition);withoutStyleAttachment=[bool]$WithoutInjection;readOnlyDiagnosticBootstrap=[bool]$ReadNativeComposition;nativeControlsPerScenario=3;detailedGeometry=[bool]$DetailedGeometry;treeGeometry=[bool]$TreeGeometry;nativeViewportCycle=[bool]$NativeViewportCycle;fixtureHash=(Get-FileHash $fixturePath).Hash;hostHash=(Get-FileHash $hostPath).Hash;scope='owned standard TextBox; 144 DPI; Unicode SendInput is not IME verification; optional composition getters can materialize visuals'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
 } catch {
  ($_|Out-String)+$_.ScriptStackTrace|Set-Content -LiteralPath (Join-Path $OutputDirectory 'failure.txt') -Encoding utf8
  if($script:fixture -and -not $script:fixture.HasExited){try{[void](SaveState 'failure-state')}catch{}}
+ if($DiagnoseFailure -and $script:fixture -and -not $script:fixture.HasExited){
+  try{
+   Shot 'failure-after-wait'
+   if($FailureReader -and (Owner) -eq [IntPtr]::Zero){
+    $readerPath=(Resolve-Path -LiteralPath $FailureReader).Path
+    & $readerPath $script:h.ToInt64().ToString() *> (Join-Path $OutputDirectory ($run+'-failure-composition.txt'))
+    if($LASTEXITCODE -ne 0){throw 'Owned composition diagnostic failed'}
+    Shot 'failure-after-composition-read'
+   }
+   if((Metric 75) -eq 1){
+    Command 27;Shot 'failure-after-layout'
+    [void](Metric 62);[void](Metric 63);Shot 'failure-after-transform-query'
+    Command 25;Shot 'failure-after-viewport-cycle'
+    Command 26
+    Copy-Item -LiteralPath (Join-Path $FixtureDirectory ('native-island-tree-'+$script:fixture.Id+'.txt')) -Destination (Join-Path $OutputDirectory ($run+'-failure-tree.txt'))
+    Shot 'failure-after-tree'
+   }else{
+    # Older fixtures retain their original binary and code timing. Only after
+    # recording a failed comparison, ask their existing WM_SIZE path to run.
+    [void][NativeIslandText]::Send($script:h,5)
+    Shot 'failure-after-size-message'
+    $g=[NativeIslandText]::Geometry($script:h)
+    [void][NativeIslandText]::SetWindowPos($script:h,[IntPtr]::Zero,$g[0],$g[1],($g[2]-$g[0]),($g[3]-$g[1]+45),0x14)
+    Start-Sleep -Milliseconds 200
+    [void][NativeIslandText]::SetWindowPos($script:h,[IntPtr]::Zero,$g[0],$g[1],($g[2]-$g[0]),($g[3]-$g[1]),0x14)
+    Shot 'failure-after-window-size-cycle'
+   }
+  }catch{$_|Out-String|Set-Content (Join-Path $OutputDirectory 'diagnostic-failure.txt') -Encoding utf8}
+ }
  throw
 } finally {
  if($script:fixture -and -not $script:fixture.HasExited){

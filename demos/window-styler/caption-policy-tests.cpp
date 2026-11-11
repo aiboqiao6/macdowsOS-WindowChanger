@@ -55,6 +55,28 @@ bool SaveTitle(HWND window, const std::filesystem::path &path, COLORREF &sample,
     int width = rect.right - rect.left, height = bottom;
     if (width < 100 || width > 4096 || height <= top || height > 256)
         return false;
+    if (!print) {
+        if (GetForegroundWindow() != window) {
+            std::cout << "Screen capture rejected: owned caption lost foreground" << std::endl;
+            return false;
+        }
+        RECT band{rect.left + 20, rect.top + top, rect.right - 20, rect.top + bottom};
+        for (auto above = GetTopWindow(nullptr); above && above != window; above = GetWindow(above, GW_HWNDNEXT)) {
+            RECT bounds{}, intersection{};
+            DWORD cloaked{};
+            if (IsWindowVisible(above) && !IsIconic(above) &&
+                SUCCEEDED(DwmGetWindowAttribute(above, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && !cloaked &&
+                GetWindowRect(above, &bounds) && IntersectRect(&intersection, &band, &bounds)) {
+                DWORD process{};
+                GetWindowThreadProcessId(above, &process);
+                std::cout << "Screen capture rejected: caption occluded by PID " << process << " at " << bounds.left
+                          << ',' << bounds.top << ',' << bounds.right << ',' << bounds.bottom << std::endl;
+                return false;
+            }
+        }
+        if (FAILED(DwmFlush()))
+            return false;
+    }
     BITMAPINFO info{};
     info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     info.bmiHeader.biWidth = width;

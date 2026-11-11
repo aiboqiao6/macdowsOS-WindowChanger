@@ -67,7 +67,7 @@ Candidate InspectInline(HWND window) {
         c.reason = framework.id == L"chromium-views"
                        ? L"当前 Chromium Views 编译版本缺少已验证 ABI profile，原控件布局尚未适配。"
                    : framework.id == L"winui3"
-                       ? L"已识别 Windows App SDK / WinUI 3；原控件树入口仍在隔离测试，尚未启用正式后端。"
+                       ? L"已识别 Windows App SDK / WinUI 3；当前架构或框架 ABI 不匹配已注册的原生标题后端。"
                    : framework.id == L"office-netui"
                        ? L"当前 Office NetUI 架构、模块 ABI 或窗口类型不在已验证的原树起始页 profile 中。"
                    : framework.id == L"mfc-bcg" ? L"当前 MFC / BCG 架构或框架 ABI 不匹配已验证的原顶栏 profile。"
