@@ -614,10 +614,12 @@
     <None Include="../../demos/window-styler/research/winui3-probe/test-native-island-boundaries.ps1"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/research/winui3-probe/test-native-island-initialization.ps1"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/research/winui3-probe/test-native-island-text.ps1"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/winui3-probe/test-native-island-rebuild.ps1"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/research/winui3-probe/native-island.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v36.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v37.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v38.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v39.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/verification-v40.md"><Filter>框架研究</Filter></None>
   </ItemGroup>
 </Project>

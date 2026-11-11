@@ -114,6 +114,7 @@ struct TitlePalette {
 struct NativeIslandFrame {
     HWND hwnd{};
     x::Hosting::DesktopWindowXamlSource source{nullptr};
+    winrt::Microsoft::UI::Content::DesktopChildSiteBridge sourceBridge{nullptr};
     x::Hosting::DesktopWindowXamlSource titleSource{nullptr};
     x::FrameworkElement body{nullptr};
     c::Grid frame{nullptr}, lights{nullptr};
@@ -161,6 +162,9 @@ struct NativeIslandFrame {
     NativeIslandFrame(HWND target, x::Hosting::DesktopWindowXamlSource const &island, bool keepRoot = false,
                       bool ownTitle = false)
         : hwnd(target), source(island), preserveRoot(keepRoot), separateTitle(ownTitle) {
+        sourceBridge = source.SiteBridge();
+        if (sourceBridge.IsClosed())
+            winrt::throw_hresult(RO_E_CLOSED);
         body = source.Content().as<x::FrameworkElement>();
         window = w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(hwnd)});
         presenter = window.Presenter().as<w::OverlappedPresenter>();
@@ -170,7 +174,10 @@ struct NativeIslandFrame {
     bool OwnsSource() {
         Operation operation(*this);
         try {
-            return source.Content() == (preserveRoot || separateTitle ? body : frame) &&
+            // A closed DesktopWindowXamlSource can AV in Content(), rather
+            // than returning RO_E_CLOSED. Retain its public bridge and consult
+            // the bridge's close state before touching the source again.
+            return !sourceBridge.IsClosed() && source.Content() == (preserveRoot || separateTitle ? body : frame) &&
                    (!separateTitle || (titleSource && titleSource.Content() == frame));
         } catch (...) {
             return false;
@@ -212,9 +219,19 @@ struct NativeIslandFrame {
             return 0;
         }
         // Do not expose the transient caption-sized viewport to the host.
-        // The separate-title experiment keeps its original island size.
-        if (self && self->changing && m == WM_SIZE)
-            return 0;
+        // If the original source closed, only the host can lay out its new
+        // island on rollback. Otherwise the retained bridge handles the final
+        // viewport below; forwarding also would lay out original content twice.
+        if (self && self->changing && m == WM_SIZE) {
+            if (!self->separateTitle || !self->restoring)
+                return 0;
+            try {
+                if (!self->sourceBridge.IsClosed())
+                    return 0;
+            } catch (...) {
+                return 0;
+            }
+        }
         if ((wp == HTMINBUTTON || wp == HTMAXBUTTON || wp == HTCLOSE) &&
             (m == WM_NCLBUTTONDOWN || m == WM_NCLBUTTONUP || m == WM_NCLBUTTONDBLCLK))
             return 0;
@@ -225,9 +242,13 @@ struct NativeIslandFrame {
         Operation operation(*this);
         if (!source || IsIconic(hwnd))
             return;
+        if (sourceBridge.IsClosed()) {
+            invalid = true;
+            winrt::throw_hresult(RO_E_CLOSED);
+        }
         RECT r{};
         GetClientRect(hwnd, &r);
-        if (active && separateTitle && (r.right < MulDiv(84, dpi, 96) || r.bottom <= normalDelta)) {
+        if (active && separateTitle && !restoring && (r.right < MulDiv(84, dpi, 96) || r.bottom <= normalDelta)) {
             invalid = true;
             winrt::throw_hresult(E_BOUNDS);
         }
@@ -238,11 +259,13 @@ struct NativeIslandFrame {
             delta = normalDelta - (IsZoomed(hwnd) ? border : 0);
             Inset();
         }
-        if (active && separateTitle) {
-            source.SiteBridge().MoveAndResize({0, delta, r.right, r.bottom - delta});
+        // Restore can reenter through the host's final WM_SIZE after the
+        // title island has closed. Only the native content viewport remains.
+        if (active && separateTitle && !restoring) {
+            sourceBridge.MoveAndResize({0, delta, r.right, r.bottom - delta});
             titleSource.SiteBridge().MoveAndResize({0, 0, r.right, delta});
         } else
-            source.SiteBridge().MoveAndResize({0, 0, r.right, r.bottom});
+            sourceBridge.MoveAndResize({0, 0, r.right, r.bottom});
         if (active && !changing)
             Regions();
     }
@@ -363,15 +386,16 @@ struct NativeIslandFrame {
         restoreStage = "native-island-position";
         GetClientRect(hwnd, &nativeClient);
         try {
-            if (separateTitle && IsIconic(hwnd)) {
+            if (!sourceBridge.IsClosed() && separateTitle && IsIconic(hwnd)) {
                 // A minimized HWND's client rect is not its content viewport.
                 // Reposition the retained island without shrinking its size.
                 RECT island{};
-                winrt::check_bool(GetWindowRect(reinterpret_cast<HWND>(source.SiteBridge().WindowId().Value), &island));
+                winrt::check_bool(GetWindowRect(reinterpret_cast<HWND>(sourceBridge.WindowId().Value), &island));
                 nativeClient.right = island.right - island.left;
                 nativeClient.bottom = island.bottom - island.top;
             }
-            source.SiteBridge().MoveAndResize({0, 0, nativeClient.right, nativeClient.bottom});
+            if (!sourceBridge.IsClosed())
+                sourceBridge.MoveAndResize({0, 0, nativeClient.right, nativeClient.bottom});
         } catch (winrt::hresult_error const &error) {
             // A host may close its island before destroying the HWND. There
             // is then no original bridge left to reposition.

@@ -75,7 +75,13 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
     c::Button editor{nullptr};
     c::Button action{nullptr};
     c::TextBox document{nullptr};
-    unsigned documentLoads{}, documentUnloads{}, documentChanges{};
+    struct DocumentEvents {
+        unsigned loads{}, unloads{}, changes{};
+    };
+    std::shared_ptr<DocumentEvents> documentEvents{std::make_shared<DocumentEvents>()}, retiredDocument;
+    bool resourcesLoaded{}, rebuildPending{};
+    unsigned sourceGeneration{1};
+    static constexpr UINT_PTR RebuildTimer = 0x4e495342;
     unsigned activations{}, characters{};
     unsigned initializationFault{}, initializationFaults{};
     bool faultBeforeLease{};
@@ -88,6 +94,26 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
         Theme(light);
         source.Content(body);
         ++generation;
+    }
+    void Rebuild(unsigned mode) {
+        const auto light = body.ActualTheme() == x::ElementTheme::Light;
+        retiredDocument = documentEvents;
+        if (mode != 22) {
+            auto previous = source;
+            source = nullptr; // Nested WM_SIZE must not use the closing bridge.
+            previous.Close();
+            ++sourceGeneration;
+            if (mode == 24) {
+                rebuildPending = true;
+                winrt::check_bool(SetTimer(hwnd, RebuildTimer, 750, nullptr) != 0);
+                return;
+            }
+            source = x::Hosting::DesktopWindowXamlSource();
+            source.Initialize({reinterpret_cast<uint64_t>(hwnd)});
+        }
+        BuildContent(light);
+        ++generation;
+        Resize();
     }
     static LRESULT CALLBACK InitializationFault(HWND h, UINT m, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR data) {
         auto self = reinterpret_cast<App *>(data);
@@ -227,7 +253,8 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
         RECT r{};
         POINT origin{};
         GetClientRect(hwnd, &r);
-        ClientToScreen(reinterpret_cast<HWND>(source.SiteBridge().WindowId().Value), &origin);
+        if (source)
+            ClientToScreen(reinterpret_cast<HWND>(source.SiteBridge().WindowId().Value), &origin);
         const double scale = double(dpi) / 96;
         auto p = body.TransformToVisual(nullptr).TransformPoint({0, 0});
         if (index >= 20 && index < 36) {
@@ -268,7 +295,7 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
         case 8:
             return native && native->active ? std::lround(native->lights.ActualHeight() * scale) : 0;
         case 9:
-            return native && native->active ? native->OwnsSource() : source.Content() == body;
+            return native && native->active ? native->OwnsSource() : source && source.Content() == body;
         case 10:
             return w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(hwnd)})
                 .Presenter()
@@ -281,7 +308,8 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
         case 13:
         case 14: {
             RECT island{};
-            GetWindowRect(reinterpret_cast<HWND>(source.SiteBridge().WindowId().Value), &island);
+            if (source)
+                GetWindowRect(reinterpret_cast<HWND>(source.SiteBridge().WindowId().Value), &island);
             return index == 13 ? island.right - island.left : island.bottom - island.top;
         }
         case 40: {
@@ -293,7 +321,7 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
         case 42:
             return activations;
         case 43:
-            return source.HasFocus();
+            return source && source.HasFocus();
         case 44:
             return initializationFaults;
         case 45:
@@ -311,11 +339,11 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
         case 53:
             return document ? document.SelectionLength() : -1;
         case 54:
-            return documentLoads;
+            return documentEvents->loads;
         case 55:
-            return documentUnloads;
+            return documentEvents->unloads;
         case 56:
-            return documentChanges;
+            return documentEvents->changes;
         case 57:
             return document ? std::lround(document.ActualWidth() * scale) : -1;
         case 58:
@@ -326,6 +354,16 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
             return document && document.CanRedo();
         case 61:
             return document ? static_cast<int>(document.ActualTheme()) : -1;
+        case 70:
+            return sourceGeneration;
+        case 71:
+            return source ? static_cast<LRESULT>(source.SiteBridge().WindowId().Value) : 0;
+        case 72:
+            return retiredDocument ? retiredDocument->loads : -1;
+        case 73:
+            return retiredDocument ? retiredDocument->unloads : -1;
+        case 74:
+            return rebuildPending;
         default:
             return 0;
         }
@@ -381,11 +419,24 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
                     window.Closing(token);
                 } else if (wp == 21) {
                     winrt::check_bool(self->document && self->document.Focus(x::FocusState::Programmatic));
+                } else if (wp >= 22 && wp <= 24) {
+                    self->Rebuild(static_cast<unsigned>(wp));
                 }
                 return 0;
             }
             if (m == Metric)
                 return self->ReadMetric(wp);
+            if (m == WM_TIMER && wp == RebuildTimer && self->rebuildPending) {
+                KillTimer(h, RebuildTimer);
+                self->rebuildPending = false;
+                const auto light = self->body.ActualTheme() == x::ElementTheme::Light;
+                self->source = x::Hosting::DesktopWindowXamlSource();
+                self->source.Initialize({reinterpret_cast<uint64_t>(h)});
+                self->BuildContent(light);
+                ++self->generation;
+                self->Resize();
+                return 0;
+            }
             if (m == WM_SIZE)
                 self->Resize();
             if (m == WM_GETTITLEBARINFOEX && (self->native && self->native->active) && lp) {
@@ -408,7 +459,8 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
                     return 0;
                 }
                 self->Restore();
-                self->source.Close();
+                if (self->source)
+                    self->source.Close();
                 self->source = nullptr;
                 DestroyWindow(h);
                 return 0;
@@ -446,6 +498,18 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
         dpi = GetDpiForWindow(h);
         source = x::Hosting::DesktopWindowXamlSource();
         source.Initialize({reinterpret_cast<uint64_t>(h)});
+        BuildContent(wcsstr(GetCommandLineW(), L"--light") != nullptr);
+        SetPropW(h, L"Macdows.Research.NativeIsland.Owned", reinterpret_cast<HANDLE>(1));
+        Resize();
+        // The owned boundary test deliberately allows widths below the native
+        // caption minimum, without changing non-client geometry or capabilities.
+        if (wcsstr(GetCommandLineW(), L"--boundary-sizes"))
+            winrt::check_bool(SetWindowSubclass(h, BoundarySize, 0x4e495342, 0));
+        ShowWindow(h, SW_SHOW);
+    }
+    void BuildContent(bool light) {
+        document = nullptr;
+        documentEvents = std::make_shared<DocumentEvents>();
         body = c::Grid();
         c::RowDefinition toolbarRow;
         toolbarRow.Height({52, x::GridUnitType::Pixel});
@@ -466,9 +530,10 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
         content.VerticalAlignment(x::VerticalAlignment::Center);
         c::Grid::SetRow(content, 1);
         body.Children().Append(content);
-        if (wcsstr(GetCommandLineW(), L"--text-editor")) {
+        if (wcsstr(GetCommandLineW(), L"--text-editor") && !resourcesLoaded) {
             source.Content(body);
             Resources().MergedDictionaries().Append(c::XamlControlsResources());
+            resourcesLoaded = true;
         }
         if (wcsstr(GetCommandLineW(), L"--interactive") || wcsstr(GetCommandLineW(), L"--text-editor")) {
             c::StackPanel panel;
@@ -513,9 +578,10 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
                 document.TextWrapping(x::TextWrapping::Wrap);
                 document.IsSpellCheckEnabled(false);
                 document.Text(L"Original document");
-                document.Loaded([this](auto const &, auto const &) { ++documentLoads; });
-                document.Unloaded([this](auto const &, auto const &) { ++documentUnloads; });
-                document.TextChanged([this](auto const &, auto const &) { ++documentChanges; });
+                auto events = documentEvents;
+                document.Loaded([events](auto const &, auto const &) { ++events->loads; });
+                document.Unloaded([events](auto const &, auto const &) { ++events->unloads; });
+                document.TextChanged([events](auto const &, auto const &) { ++events->changes; });
                 panel.Children().Append(document);
             } else
                 panel.Children().Append(editor);
@@ -524,16 +590,9 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
             body.Children().RemoveAtEnd();
             body.Children().Append(panel);
         }
-        Theme(wcsstr(GetCommandLineW(), L"--light") != nullptr);
-        if (!source.Content())
+        Theme(light);
+        if (source.Content() != body)
             source.Content(body);
-        SetPropW(h, L"Macdows.Research.NativeIsland.Owned", reinterpret_cast<HANDLE>(1));
-        Resize();
-        // The owned boundary test deliberately allows widths below the native
-        // caption minimum, without changing non-client geometry or capabilities.
-        if (wcsstr(GetCommandLineW(), L"--boundary-sizes"))
-            winrt::check_bool(SetWindowSubclass(h, BoundarySize, 0x4e495342, 0));
-        ShowWindow(h, SW_SHOW);
     }
 };
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {

@@ -16,6 +16,8 @@ NativeIslandFrame 还保留了包裹原根和修改原根 Margin 两种对照模
 
 研究控制器限时运行，owner 进程消失或宿主替换原 Content 后自动撤销。恢复失败不返回成功，不删除仍需恢复的会话，保留定时器重试。初始化期间遇到释放或窗口销毁时延后清理，避免 Apply 调用栈中的 frame 被重入删除；恢复期间也阻止重复释放。宿主替换的新 Content 不会被旧根覆盖。
 
+保留原 DesktopChildSiteBridge，在读取源 Content 或调整桥接位置前检查 IsClosed。宿主关闭旧 DesktopWindowXamlSource 后，直接读取其 Content 可能触发框架访问冲突，不能依赖 C++ 异常捕获。旧桥接关闭后不再访问该源；只有旧桥接已关闭才在恢复原生标题期间转交最终 WM_SIZE，让宿主调整新建岛屿，避免新控件沿用扩展客户区的高度而发生位置偏移。旧源仍存在时由保留的桥接调整，不重复触发宿主布局。恢复重入的 Resize 只调整正文，不访问已关闭的临时标题岛屿。
+
 公开 XAML 调用期间重入的 WM_CLOSE 或 SC_CLOSE 保存原消息及参数，最外层调用返回后再投递。宿主处理关闭前先完成撤销；WinRT 引用释放期间仍保留 releasing 状态和消息拦截，使重入查询不再访问正在关闭的 Content。恢复失败时保留关闭请求并重试。初始化完成前重新确认原根所有权，未完成 Apply 的嵌套 Detach 不提前确认成功。
 
 ## 构建与自有窗口验证
@@ -30,6 +32,7 @@ NativeIslandFrame 还保留了包裹原根和修改原根 Margin 两种对照模
 & ./demos/window-styler/research/winui3-probe/test-native-island-boundaries.ps1
 & ./demos/window-styler/research/winui3-probe/test-native-island-initialization.ps1
 & ./demos/window-styler/research/winui3-probe/test-native-island-text.ps1
+& ./demos/window-styler/research/winui3-probe/test-native-island-rebuild.ps1
 ~~~
 
 Debug 时指定各脚本对应的 Debug FixtureDirectory、HostDirectory（第一个脚本不需要 HostDirectory）和独立 OutputDirectory。UI 测试串行运行。第一个脚本在自有深浅色窗口中验证几何、正文像素、原标题文字和配色恢复、标题主题、旧按钮禁用、缩放、最大化和三灯真实点击。第二个脚本通过外部研究控制器验证正常退出、控制器进程异常退出、最小化时控制器退出、根节点替换、宿主关闭和应用内部主题切换。
@@ -42,8 +45,10 @@ Debug 时指定各脚本对应的 Debug FixtureDirectory、HostDirectory（第�
 
 真实窗口的研究入口为该独立目录中的 WinUI3NativeIslandHost.exe，参数为 HWND 和 3 至 30 秒持续时间。该命令会实际修改目标窗口；不能把一次 Probe 或会话成功当成完整适配验证。软件库存、实际窗口截图及私有测试只保留在忽略的 out。
 
+第六个脚本在相同 HWND 内分别替换完整根和标准 TextBox、立即重建 DesktopWindowXamlSource、关闭旧源后间隔 750ms 异步创建新源。深浅色均运行独立原生对照和研究接管窗口；旧控件必须只卸载一次，新控件的文本和历史不能被旧会话覆盖。检查旧会话退出、属性清理、新岛屿尺寸及正文位置、再次接管、绿灯最大化/还原、Ctrl+Z/Ctrl+Y、正常和异常恢复。重建后及最终状态均与原生对照比较完整 PNG，不裁剪、遮罩或增加容差。可指定 -Scenario root、source 或 gap。
+
 ## 验证边界
 
 test-native-island-initialization.ps1 在自有窗口的标题模式 setter 回调内、租约属性发布前，确定性触发根替换、嵌套撤销、WM_CLOSE、SC_CLOSE 和取消关闭，共 97 项检查。包含正常退出码、回调返回时 HWND 存活、临时岛屿清理、属性及几何恢复、新根保留和再次接管；取消关闭及嵌套撤销还比较完整窗口 PNG。它不模拟直接 DestroyWindow、任意线程强制销毁或框架调用自身失败。
 
-全机软件、多岛屿、全部 DPI、跨屏、实际应用的完整深浅主题矩阵、真实文档编辑与 IME、宿主重建和更多动态标题行为仍需分别验证。标准 TextBox 的自有窗口测试不能替代实际应用的完整编辑状态验证，也不足以启用正式通用 WinUI 后端。本机只有一块 144 DPI 显示器，本轮未改变系统缩放或任何已有应用的主题。详细结果与失败记录见 [v39 验证记录](../../verification-v39.md)，此前实验见 [v38](../../verification-v38.md)、[v37](../../verification-v37.md) 和 [v36](../../verification-v36.md)。
+全机软件、多岛屿、全部 DPI、跨屏、实际应用的完整深浅主题矩阵、真实文档编辑与 IME、实际应用宿主重建和更多动态标题行为仍需分别验证。标准 TextBox 的自有窗口测试不能替代实际应用的完整编辑状态验证，也不足以启用正式通用 WinUI 后端。本机只有一块 144 DPI 显示器，本轮未改变系统缩放或任何已有应用的主题。详细结果与失败记录见 [v40 验证记录](../../verification-v40.md)，此前实验见 [v39](../../verification-v39.md)、[v38](../../verification-v38.md)、[v37](../../verification-v37.md) 和 [v36](../../verification-v36.md)。
