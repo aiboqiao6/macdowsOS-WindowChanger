@@ -18,11 +18,15 @@ NativeIslandFrame 还保留了包裹原根和修改原根 Margin 两种对照模
 
 保留原 DesktopChildSiteBridge，在读取源 Content 或调整桥接位置前检查 IsClosed。宿主关闭旧 DesktopWindowXamlSource 后，直接读取其 Content 可能触发框架访问冲突，不能依赖 C++ 异常捕获。旧桥接关闭后不再访问该源；只有旧桥接已关闭才在恢复原生标题期间转交最终 WM_SIZE，让宿主调整新建岛屿，避免新控件沿用扩展客户区的高度而发生位置偏移。旧源仍存在时由保留的桥接调整，不重复触发宿主布局。恢复重入的 Resize 只调整正文，不访问已关闭的临时标题岛屿。
 
+独立标题源同样保留其 DesktopChildSiteBridge。宿主通过公共 Close 关闭标题后，所有权和输入就绪查询先检查该桥接，Resize 将事务标为失效并返回 RO_E_CLOSED，恢复跳过已关闭标题的 Content/Close。恢复过程重入时，仅在桥接独立确认关闭后接受 RO_E_CLOSED；其他错误继续保留会话并重试。自有窗口诊断曾在旧版标题关闭后的 Content 查询中等待 15 秒未返回；这次观察不是访问冲突的证明。
+
 公开 XAML 调用期间重入的 WM_CLOSE 或 SC_CLOSE 保存原消息及参数，最外层调用返回后再投递。宿主处理关闭前先完成撤销；WinRT 引用释放期间仍保留 releasing 状态和消息拦截，使重入查询不再访问正在关闭的 Content。恢复失败时保留关闭请求并重试。初始化完成前重新确认原根所有权，未完成 Apply 的嵌套 Detach 不提前确认成功。
 
 ## 构建与自有窗口验证
 
 正式构建默认启用 `STYLER_WINUI3_NATIVE`，需先按主 README 准备投影头文件。正式 `WinUI3NativeIslandHost` 显式调用 Automatic，并确认最终 Adapter288；它是验证程序，不进入运行包。各契约脚本的 HostDirectory 可指向正式配置目录，真实画图脚本另加 `-ProductionRegistry` 并把 HostDirectory 指向含 Debug/Release 的构建父目录。`test-winui3-auto.ps1` 则直接启动实际控制器，在 GUID 隔离设置与自有 PID 范围验证默认接管和托盘；同权限测试不等于高权限自启验证。
+
+正式 x64 构建另含 `WinUI3ClosedTitleTests`。`ctest --test-dir <构建目录> -C Debug -V -R ^winui3_closed_title_` 及对应 Release 命令执行深浅色的三层关闭回归：共享事务、从 adapters.ini 加载实际模块的公开适配 ABI、外部验证主机的 Automatic 跨进程注入。窗口不激活、不使用全局键鼠或截图；跨进程模式仅注入自身 fixture。检查关闭后的安全查询、恢复及租约清理、原 Content/HWND/正文 viewport/几何/style/标题、TextBox 单次 Loaded 且从未 Unloaded，以及再次附加和撤销。取得标题源的诊断读操作也受固定框架 ABI 与入口字节约束，Debug 使用与该 ABI 一致的 release CRT；这不是任意 WinUI 版本的源枚举入口。此组检查不能替代实际点击、输入法或整窗像素矩阵。
 
 使用已准备好 out/winui3-sdk 的 x64 research/framework-probe 构建目录：
 
@@ -58,4 +62,4 @@ test-native-island-initialization.ps1 在自有窗口的标题模式 setter 回�
 
 test-paint-document.ps1 在真实画图中使用自有 PNG、原铅笔和真实输入，验证接管前后及恢复后的绘制、保存、Ctrl+Z/Ctrl+Y、绿灯最大化/还原与原编辑历史。Debug/Release 各有正常及异常恢复，每组先运行两个从未注入的原生对照，共 12 个进程、622 项。保存文档比较解码后的 ARGB 原像素；本地正文比较完整 PNG，最终整窗必须精确匹配注入前建立的两个完整原生参考之一。画图自身可产生工具栏边缘 2 像素的不同原生栅格化，完全未注入重放已经复现；不使用遮罩或数值容差。已有画图进程时拒绝测试，-WithoutInjection 可作纯原生诊断，-OutputDirectory 必须为新目录。
 
-全机软件、多岛屿、全部 DPI、跨屏、实际应用的完整深浅主题矩阵、IME、实际应用宿主重建和更多动态标题行为仍需分别验证。画图当前深色 PNG 编辑和标准 TextBox 测试不足以证明全部应用、工具或对话框已适配。本机只有一块 144 DPI 显示器，本轮未改变系统缩放或任何已有应用的主题。最新结果见 [v41](../../verification-v41.md)，宿主重建及失败记录见 [v40](../../verification-v40.md)，此前实验见 [v39](../../verification-v39.md)、[v38](../../verification-v38.md)、[v37](../../verification-v37.md) 和 [v36](../../verification-v36.md)。
+全机软件、多岛屿、全部 DPI、跨屏、实际应用的完整深浅主题矩阵、IME、实际应用宿主重建和更多动态标题行为仍需分别验证。画图当前深色 PNG 编辑和标准 TextBox 测试不足以证明全部应用、工具或对话框已适配。本机只有一块 144 DPI 显示器，本轮未改变系统缩放或任何已有应用的主题。最新结果见 [v42](../../verification-v42.md) 和 [v41](../../verification-v41.md)，宿主重建及失败记录见 [v40](../../verification-v40.md)，此前实验见 [v39](../../verification-v39.md)、[v38](../../verification-v38.md)、[v37](../../verification-v37.md) 和 [v36](../../verification-v36.md)。

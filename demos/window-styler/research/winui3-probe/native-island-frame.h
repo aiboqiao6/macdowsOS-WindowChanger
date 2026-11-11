@@ -117,6 +117,7 @@ struct NativeIslandFrame {
     x::Hosting::DesktopWindowXamlSource source{nullptr};
     winrt::Microsoft::UI::Content::DesktopChildSiteBridge sourceBridge{nullptr};
     x::Hosting::DesktopWindowXamlSource titleSource{nullptr};
+    winrt::Microsoft::UI::Content::DesktopChildSiteBridge titleBridge{nullptr};
     x::FrameworkElement body{nullptr};
     c::Grid frame{nullptr}, lights{nullptr};
     c::Button buttons[3]{nullptr, nullptr, nullptr};
@@ -183,7 +184,8 @@ struct NativeIslandFrame {
             // than returning RO_E_CLOSED. Retain its public bridge and consult
             // the bridge's close state before touching the source again.
             return !sourceBridge.IsClosed() && source.Content() == (preserveRoot || separateTitle ? body : frame) &&
-                   (!separateTitle || (titleSource && titleSource.Content() == frame));
+                   (!separateTitle ||
+                    (titleSource && titleBridge && !titleBridge.IsClosed() && titleSource.Content() == frame));
         } catch (...) {
             return false;
         }
@@ -191,6 +193,8 @@ struct NativeIslandFrame {
     bool InputReady() {
         Operation operation(*this);
         try {
+            if (separateTitle && (!titleBridge || titleBridge.IsClosed()))
+                return false;
             // Content assignment and UpdateLayout can precede Loaded for a
             // newly created source. A lease alone does not mean that its
             // caption controls have entered the input/visual tree.
@@ -225,7 +229,8 @@ struct NativeIslandFrame {
         }
         if (titleSource)
             try {
-                titleSource.Close();
+                if (!titleBridge || !titleBridge.IsClosed())
+                    titleSource.Close();
             } catch (...) {
             }
         RemoveWindowSubclass(hwnd, CaptionFilter, 0x4e49534c);
@@ -289,8 +294,12 @@ struct NativeIslandFrame {
         // Restore can reenter through the host's final WM_SIZE after the
         // title island has closed. Only the native content viewport remains.
         if (active && separateTitle && !restoring) {
+            if (!titleBridge || titleBridge.IsClosed()) {
+                invalid = true;
+                winrt::throw_hresult(RO_E_CLOSED);
+            }
             sourceBridge.MoveAndResize({0, delta, r.right, r.bottom - delta});
-            titleSource.SiteBridge().MoveAndResize({0, 0, r.right, delta});
+            titleBridge.MoveAndResize({0, 0, r.right, delta});
         } else
             sourceBridge.MoveAndResize({0, 0, r.right, r.bottom});
         if (active && !changing)
@@ -384,9 +393,26 @@ struct NativeIslandFrame {
         restoreStage = "close-title";
         if (separateTitle) {
             if (titleSource) {
-                titleSource.Content(nullptr);
-                titleSource.Close();
+                // A host can close any source on its GUI thread, including
+                // our independent title. Content on a closed source can block
+                // or fault instead of reporting RO_E_CLOSED. Consult the
+                // retained public bridge before touching that source again.
+                if (!titleBridge || !titleBridge.IsClosed()) {
+                    try {
+                        if (titleBridge)
+                            titleSource.Content(nullptr);
+                        if (!titleBridge || !titleBridge.IsClosed())
+                            titleSource.Close();
+                    } catch (winrt::hresult_error const &error) {
+                        // Content/Close can reenter a host that closes the
+                        // source. Only an independently confirmed closed
+                        // bridge makes that particular error recoverable.
+                        if (error.code() != RO_E_CLOSED || !titleBridge || !titleBridge.IsClosed())
+                            throw;
+                    }
+                }
                 titleSource = nullptr;
+                titleBridge = nullptr;
             }
         } else if (!OwnsSource()) {
             // Comparison modes may not overwrite a replacement supplied by
@@ -507,6 +533,7 @@ struct NativeIslandFrame {
             if (separateTitle) {
                 titleSource = x::Hosting::DesktopWindowXamlSource();
                 titleSource.Initialize(window.Id());
+                titleBridge = titleSource.SiteBridge();
                 titleSource.Content(frame);
             } else if (preserveRoot) {
                 frame.VerticalAlignment(x::VerticalAlignment::Top);
