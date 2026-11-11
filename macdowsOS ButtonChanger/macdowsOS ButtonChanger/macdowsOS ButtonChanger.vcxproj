@@ -266,6 +266,8 @@
     <None Include="../../demos/window-styler/verification-v38.md" />
     <None Include="../../demos/window-styler/verification-v39.md" />
     <None Include="../../demos/window-styler/verification-v40.md" />
+    <None Include="../../demos/window-styler/verification-v41.md" />
+    <None Include="../../demos/window-styler/research/winui3-probe/test-paint-document.ps1" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

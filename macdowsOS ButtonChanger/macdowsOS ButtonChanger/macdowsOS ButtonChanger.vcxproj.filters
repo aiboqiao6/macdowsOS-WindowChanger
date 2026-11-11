@@ -621,5 +621,7 @@
     <None Include="../../demos/window-styler/verification-v38.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v39.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v40.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/verification-v41.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/winui3-probe/test-paint-document.ps1"><Filter>框架研究</Filter></None>
   </ItemGroup>
 </Project>

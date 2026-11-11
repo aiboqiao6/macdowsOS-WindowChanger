@@ -33,6 +33,7 @@ NativeIslandFrame 还保留了包裹原根和修改原根 Margin 两种对照模
 & ./demos/window-styler/research/winui3-probe/test-native-island-initialization.ps1
 & ./demos/window-styler/research/winui3-probe/test-native-island-text.ps1
 & ./demos/window-styler/research/winui3-probe/test-native-island-rebuild.ps1
+& ./demos/window-styler/research/winui3-probe/test-paint-document.ps1 -Configuration All
 ~~~
 
 Debug 时指定各脚本对应的 Debug FixtureDirectory、HostDirectory（第一个脚本不需要 HostDirectory）和独立 OutputDirectory。UI 测试串行运行。第一个脚本在自有深浅色窗口中验证几何、正文像素、原标题文字和配色恢复、标题主题、旧按钮禁用、缩放、最大化和三灯真实点击。第二个脚本通过外部研究控制器验证正常退出、控制器进程异常退出、最小化时控制器退出、根节点替换、宿主关闭和应用内部主题切换。
@@ -51,4 +52,6 @@ Debug 时指定各脚本对应的 Debug FixtureDirectory、HostDirectory（第�
 
 test-native-island-initialization.ps1 在自有窗口的标题模式 setter 回调内、租约属性发布前，确定性触发根替换、嵌套撤销、WM_CLOSE、SC_CLOSE 和取消关闭，共 97 项检查。包含正常退出码、回调返回时 HWND 存活、临时岛屿清理、属性及几何恢复、新根保留和再次接管；取消关闭及嵌套撤销还比较完整窗口 PNG。它不模拟直接 DestroyWindow、任意线程强制销毁或框架调用自身失败。
 
-全机软件、多岛屿、全部 DPI、跨屏、实际应用的完整深浅主题矩阵、真实文档编辑与 IME、实际应用宿主重建和更多动态标题行为仍需分别验证。标准 TextBox 的自有窗口测试不能替代实际应用的完整编辑状态验证，也不足以启用正式通用 WinUI 后端。本机只有一块 144 DPI 显示器，本轮未改变系统缩放或任何已有应用的主题。详细结果与失败记录见 [v40 验证记录](../../verification-v40.md)，此前实验见 [v39](../../verification-v39.md)、[v38](../../verification-v38.md)、[v37](../../verification-v37.md) 和 [v36](../../verification-v36.md)。
+test-paint-document.ps1 在真实画图中使用自有 PNG、原铅笔和真实输入，验证接管前后及恢复后的绘制、保存、Ctrl+Z/Ctrl+Y、绿灯最大化/还原与原编辑历史。Debug/Release 各有正常及异常恢复，每组先运行两个从未注入的原生对照，共 12 个进程、622 项。保存文档比较解码后的 ARGB 原像素；本地正文比较完整 PNG，最终整窗必须精确匹配注入前建立的两个完整原生参考之一。画图自身可产生工具栏边缘 2 像素的不同原生栅格化，完全未注入重放已经复现；不使用遮罩或数值容差。已有画图进程时拒绝测试，-WithoutInjection 可作纯原生诊断，-OutputDirectory 必须为新目录。
+
+全机软件、多岛屿、全部 DPI、跨屏、实际应用的完整深浅主题矩阵、IME、实际应用宿主重建和更多动态标题行为仍需分别验证。画图当前深色 PNG 编辑和标准 TextBox 测试不足以证明全部应用、工具或对话框已适配。本机只有一块 144 DPI 显示器，本轮未改变系统缩放或任何已有应用的主题。最新结果见 [v41](../../verification-v41.md)，宿主重建及失败记录见 [v40](../../verification-v40.md)，此前实验见 [v39](../../verification-v39.md)、[v38](../../verification-v38.md)、[v37](../../verification-v37.md) 和 [v36](../../verification-v36.md)。

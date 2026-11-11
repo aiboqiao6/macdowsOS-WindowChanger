@@ -1,4 +1,4 @@
-param([string]$OutputDirectory,[string]$RuntimeDirectory)
+param([string]$OutputDirectory,[string]$RuntimeDirectory,[switch]$SoftwareOnly)
 $ErrorActionPreference='Stop'
 if(-not $OutputDirectory) { $OutputDirectory=Join-Path $PSScriptRoot '..\out\live-v33\inventory' }
 if(-not $RuntimeDirectory) { $RuntimeDirectory=Join-Path $PSScriptRoot '..\out\vs-auto-x64\Release' }
@@ -27,6 +27,16 @@ foreach($root in @([Environment]::GetFolderPath('StartMenu'),[Environment]::GetF
 [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
 $software=[pscustomobject]@{capturedAt=(Get-Date).ToString('o');installed=$installed;startEntries=$startEntries;packages=$packages;shortcuts=$shortcuts}
 $software | ConvertTo-Json -Depth 6 | Out-File (Join-Path $OutputDirectory 'software.json') -Encoding utf8
+if($SoftwareOnly) {
+    # Installed-software discovery needs no elevation or target-process access.
+    # Keep unavailable window evidence unknown, never count it as zero or pass.
+    $summary=[pscustomobject]@{installedRecords=$installed.Count;startEntries=$startEntries.Count;packages=$packages.Count;shortcuts=$shortcuts.Count;
+        windows=$null;candidateWindows=$null;windowInventorySkipped=$true;
+        note='Software-only discovery; no window, injection, layout, or theme verification was performed.'}
+    $summary | ConvertTo-Json | Out-File (Join-Path $OutputDirectory 'summary.json') -Encoding utf8
+    $summary
+    return
+}
 $audit=(Resolve-Path (Join-Path $RuntimeDirectory 'WindowAudit.exe')).Path
 $inventoryPath=Join-Path $OutputDirectory 'windows.json'
 $arguments='--direct-inventory "'+$inventoryPath+'"'
