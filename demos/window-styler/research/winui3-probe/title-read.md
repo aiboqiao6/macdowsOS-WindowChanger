@@ -1,6 +1,6 @@
 # 实际 WinUI 3 标题树诊断
 
-`WinUI3TitleRead` 只读枚举当前 GUI 线程的现有 XAML 岛屿，复用产品 `winui3-inline.cpp` 中的运行时 ABI 校验、根枚举和标题匹配。未知模块 CodeView 或入口字节不匹配时不调用私有入口；没有重用 Windows.UI.Xaml 的诊断接口。它不修改 XAML 属性，不调用适配器 Attach，也不启用正式 WinUI 3 后端。
+`WinUI3TitleRead` 只读枚举当前 GUI 线程的现有 XAML 岛屿，复用产品 `winui3-inline.cpp` 中的运行时 ABI 校验、根枚举和标题候选查找。未知模块 CodeView 或入口字节不匹配时不调用私有入口；没有重用 Windows.UI.Xaml 的诊断接口。它不修改 XAML 属性，不调用适配器 Attach，也不启用正式 WinUI 3 后端。
 
 从 `research/framework-probe` 构建 x64 的 `WinUI3TitleRead` 目标，需要已经准备好的 `out/winui3-sdk`。程序及独立注册表输出到该构建目录的 `winui-title/Release` 或 `winui-title/Debug`，以匹配目标权限执行：
 
@@ -9,6 +9,8 @@
 ```
 
 日志只写入诊断构建目录。只记录类型、内部控件名、布局和主题状态，不采集 Text/TextBlock 的文字或文档内容；深度最多 24，每棵根树最多访问 1000 个节点，忽略纵坐标大于 120 DIP 的分支。结果不代表软件已适配。
+
+2026-11-13 增加 TabView 的 Header 空值、本地 UnsetValue、binding、template、FlowDirection、ActualTheme 与标签数量元数据，不读取标签 Header 文字。读取 Content 前先检查 SiteBridge.IsClosed；未加载的 XamlRoot 跳过。为避免通过旧 matcher 再次枚举并读取 Content，报告不再运行最终 Find，改为明确记录 `productLayoutMatcherRun=false`；逐树的 productTitleCandidates 仍保留。构建后的实际诊断 DLL 另在 `WinUI3TabStripTests` 的自有五岛屿窗口内通过公共 Probe/Attach ABI 验证，检查完整报告、拒绝附加、无租约、原内容/几何/文档保持及没有采集文档或标签文字。这不是一次新的真实记事本读取，旧报告仍对应下述旧修订。
 
 主机使用已有 Session 的线程引导，因为本机外部线程 Hook 注册返回 126；先前仅使用外部 Hook 的尝试没有取得标题树。只读 Probe 写出报告后返回不支持，Attach 始终拒绝。主机核验没有留下 owner/inline 会话、外框/客户区和 caption style 没有改变；成功退出要求本次新报告完整生成。
 

@@ -56,6 +56,30 @@ Debug 时指定各脚本对应的 Debug FixtureDirectory、HostDirectory（第�
 
 第六个脚本在相同 HWND 内分别替换完整根和标准 TextBox、立即重建 DesktopWindowXamlSource、关闭旧源后间隔 750ms 异步创建新源。深浅色均运行独立原生对照和研究接管窗口；旧控件必须只卸载一次，新控件的文本和历史不能被旧会话覆盖。检查旧会话退出、属性清理、新岛屿尺寸及正文位置、再次接管、绿灯最大化/还原、Ctrl+Z/Ctrl+Y、正常和异常恢复。重建后及最终状态均与原生对照比较完整 PNG，不裁剪、遮罩或增加容差。可指定 -Scenario root、source 或 gap。
 
+## 多岛屿 TabView 插槽研究
+
+`tab-strip-slot.h` 是独立的研究事务，没有注册为正式后端。它在原 TabView 的公共 TabStripHeader 中预留 84 DIP 并创建三灯，不包裹、卸载或替换原标签根，也不移动任何岛屿 HWND。原生 EDIT、菜单、状态栏和滚动条保持原布局。三灯继承同一岛屿的主题与透明背景，不跨 XamlRoot 复制颜色，不进入 Tab 顺序，也不获取交互焦点。
+
+附加要求原 Header 为空且没有 binding/template、LTR、已加载、同一 GUI 线程和相同顶层 WindowId；当前研究另外要求 TabView 宽至少 220 DIP。这只是实验保护条件，不代表已经验证所有 220 DIP 以上布局。撤销区分原来的 UnsetValue 与显式 null；宿主后来设置 Header 或 binding 时保留其新值，包括 binding 的结果恰好仍为原三灯对象的情况。按钮只保留共享命令状态与控件弱引用，每次操作重新核验插槽所有权、窗口身份和系统按钮能力；撤销后立即失效。集成方需在布局变化后显式调用 Refresh，窄宽、失去归属等情况撤销；目前没有正式自动接管租约或后台轮询。
+
+`WinUI3TabStripTests` 只创建自身五个真实 XAML 岛屿与原生 EDIT，以 SW_SHOWNOACTIVATE 在底部显示，通过定时器执行。先加载实际只读诊断模块，确认它通过公共适配 ABI 读出五个岛屿及空插槽元数据、不附加、不留下租约或采集文档和标签文字，再验证事务。原根和两个 TabViewItem 必须只 Loaded 一次、从未 Unloaded，原 Content、选中对象、各 HWND 几何、正文和原生 undo 均保留。深浅主题、宿主切换主题、实际布局避让、窗口放大/还原、200 DIP 窄宽拒绝、Header/template/binding/RTL 拒绝、不同 HWND 拒绝以及保留旧控件均有后台检查。
+
+按钮测试调用公共 ButtonAutomationPeer 的 Invoke，经过真实 Click 回调并确认投递 SC_CLOSE/SC_MINIMIZE/SC_MAXIMIZE；自有窗口子类拦截这三条消息，不真正关闭、最小化或最大化。它验证命令路径和失效保护，不证明真实鼠标命中、拖动、系统动作、键盘或 IME 已通过。最终通过 EM_UNDO 验证原 EDIT 确实能恢复接管前文档，不只检查 EM_CANUNDO。
+
+此事务没有隐藏禁用原生标题按钮，也没有调整原非客户区输入区域；测试明确断言 native style 不变。记事本的标签岛屿还带有宿主自己的水平偏移和动态布局，原生按钮隐藏、左侧最终定位、输入区域及完整撤销必须另行完成。不能将该 Header 原型当成记事本适配完成，不能并入正式自动接管或运行包。
+
+~~~powershell
+. ./demos/window-styler/development-tools.ps1
+$cmake = Get-DevelopmentTool cmake
+$ctest = Join-Path (Split-Path $cmake) ctest.exe
+foreach ($configuration in @('Debug', 'Release')) {
+    & $cmake --build ./demos/window-styler/out/framework-probe-x64 --config $configuration --target WinUI3TabStripTests --parallel 3
+    if ($LASTEXITCODE) { throw 'TabView research build failed' }
+    & $ctest --test-dir ./demos/window-styler/out/framework-probe-x64 -C $configuration -V -R '^winui3_tab_strip_'
+    if ($LASTEXITCODE) { throw 'TabView background contract failed' }
+}
+~~~
+
 ## 验证边界
 
 test-native-island-initialization.ps1 在自有窗口的标题模式 setter 回调内、租约属性发布前，确定性触发根替换、嵌套撤销、WM_CLOSE、SC_CLOSE 和取消关闭，共 97 项检查。包含正常退出码、回调返回时 HWND 存活、临时岛屿清理、属性及几何恢复、新根保留和再次接管；取消关闭及嵌套撤销还比较完整窗口 PNG。它不模拟直接 DestroyWindow、任意线程强制销毁或框架调用自身失败。

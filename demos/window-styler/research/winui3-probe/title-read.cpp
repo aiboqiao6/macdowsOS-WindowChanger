@@ -18,8 +18,8 @@ std::filesystem::path TitleReadDirectory() {
     GetModuleFileNameW(module, path, 32768);
     return std::filesystem::path(path).parent_path();
 }
-void ReadTitleNode(std::ostream &log, x::DependencyObject const &node, x::UIElement const &root,
-                   unsigned &budget, unsigned depth = 0) {
+void ReadTitleNode(std::ostream &log, x::DependencyObject const &node, x::UIElement const &root, unsigned &budget,
+                   unsigned depth = 0) {
     if (!node || !budget || depth > 24)
         return;
     --budget;
@@ -36,6 +36,13 @@ void ReadTitleNode(std::ostream &log, x::DependencyObject const &node, x::UIElem
             << " size=" << element.ActualWidth() << ',' << element.ActualHeight()
             << " visible=" << static_cast<int>(element.Visibility())
             << " enabled=" << (element.try_as<c::Control>() ? element.as<c::Control>().IsEnabled() : true);
+    if (auto tabs = node.try_as<c::TabView>())
+        log << " tabHeaderEmpty=" << !tabs.TabStripHeader() << " tabHeaderLocalUnset="
+            << (tabs.ReadLocalValue(c::TabView::TabStripHeaderProperty()) == x::DependencyProperty::UnsetValue())
+            << " tabHeaderBound=" << static_cast<bool>(tabs.GetBindingExpression(c::TabView::TabStripHeaderProperty()))
+            << " tabHeaderTemplate=" << static_cast<bool>(tabs.TabStripHeaderTemplate())
+            << " tabFlow=" << static_cast<int>(tabs.FlowDirection())
+            << " tabTheme=" << static_cast<int>(tabs.ActualTheme()) << " tabCount=" << tabs.TabItems().Size();
     log << '\n';
     for (int i = 0, count = x::Media::VisualTreeHelper::GetChildrenCount(node); i < count && budget; ++i)
         ReadTitleNode(log, x::Media::VisualTreeHelper::GetChild(node, i), root, budget, depth + 1);
@@ -51,13 +58,26 @@ void ReadInstalledTitle(HWND target) {
     GetClientRect(target, &client);
     ClientToScreen(target, &origin);
     log << "outer=" << outer.left << ',' << outer.top << ',' << outer.right << ',' << outer.bottom
-        << " client=" << client.right << ',' << client.bottom << " clientOrigin=" << origin.x << ',' << origin.y << '\n';
+        << " client=" << client.right << ',' << client.bottom << " clientOrigin=" << origin.x << ',' << origin.y
+        << '\n';
     try {
         auto sources = Roots();
         log << "guardedSources=" << sources.size() << '\n';
-        for (auto const &source : sources)
+        for (auto const &source : sources) {
+            // A closed source's Content getter need not return or throw safely.
+            // Inspect its bridge before touching the original content.
+            auto bridge = source.SiteBridge();
+            if (!bridge || bridge.IsClosed()) {
+                log << "closedSourceSkipped=true\n";
+                continue;
+            }
             if (auto root = source.Content()) {
-                auto id = root.XamlRoot().ContentIslandEnvironment().AppWindowId();
+                auto xamlRoot = root.XamlRoot();
+                if (!xamlRoot) {
+                    log << "unloadedSourceSkipped=true\n";
+                    continue;
+                }
+                auto id = xamlRoot.ContentIslandEnvironment().AppWindowId();
                 log << "windowId=" << id.Value << " target=" << reinterpret_cast<uint64_t>(target)
                     << " scale=" << root.XamlRoot().RasterizationScale() << '\n';
                 if (id.Value != reinterpret_cast<uint64_t>(target))
@@ -66,12 +86,12 @@ void ReadInstalledTitle(HWND target) {
                 log << "extends=" << window.TitleBar().ExtendsContentIntoTitleBar() << '\n';
                 if (auto presenter = window.Presenter().try_as<w::OverlappedPresenter>())
                     log << "hasTitleBar=" << presenter.HasTitleBar() << " hasBorder=" << presenter.HasBorder() << '\n';
-                auto bridge = source.SiteBridge();
                 auto child = reinterpret_cast<HWND>(bridge.WindowId().Value);
                 RECT rect{};
                 GetWindowRect(child, &rect);
-                log << "islandHwnd=" << child << " parent=" << GetParent(child) << " root=" << GetAncestor(child, GA_ROOT)
-                    << " rect=" << rect.left << ',' << rect.top << ',' << rect.right << ',' << rect.bottom << '\n';
+                log << "islandHwnd=" << child << " parent=" << GetParent(child)
+                    << " root=" << GetAncestor(child, GA_ROOT) << " rect=" << rect.left << ',' << rect.top << ','
+                    << rect.right << ',' << rect.bottom << '\n';
                 if (auto element = root.try_as<x::FrameworkElement>())
                     log << "actualTheme=" << static_cast<int>(element.ActualTheme()) << '\n';
                 std::vector<c::Grid> candidates;
@@ -84,7 +104,10 @@ void ReadInstalledTitle(HWND target) {
                 for (auto rect : pointer.GetRegionRects(input::NonClientRegionKind::Caption))
                     log << "caption=" << rect.X << ',' << rect.Y << ',' << rect.Width << ',' << rect.Height << '\n';
             }
-        log << "productLayoutMatched=" << static_cast<bool>(Find(target).title) << '\n';
+        }
+        // Do not enumerate Content again through the old product matcher: this
+        // report has already read each live bridge and its title candidates.
+        log << "productLayoutMatcherRun=false\n";
         log << "scanCompleted=true\n";
     } catch (...) {
         log << "HRESULT=" << std::hex << winrt::to_hresult() << '\n';
@@ -92,8 +115,7 @@ void ReadInstalledTitle(HWND target) {
 }
 } // namespace
 extern "C" __declspec(dllexport) DWORD WINAPI MacdowsAdapterProbeV1(const styler::AdapterContextV1 *context) {
-    if (!styler::ValidContext(context) ||
-        GetWindowThreadProcessId(context->window, nullptr) != GetCurrentThreadId())
+    if (!styler::ValidContext(context) || GetWindowThreadProcessId(context->window, nullptr) != GetCurrentThreadId())
         return ERROR_INVALID_PARAMETER;
     ReadInstalledTitle(context->window);
     return ERROR_NOT_SUPPORTED; // Read-only discovery must never reach Attach.
@@ -126,7 +148,7 @@ int wmain(int argc, wchar_t **argv) {
                   (L"winui3-title-" + std::to_wstring(pid) + L"-" +
                    std::to_wstring(reinterpret_cast<UINT_PTR>(target)) + L".txt");
     auto previous = std::filesystem::exists(report) ? std::filesystem::last_write_time(report)
-                                                   : std::filesystem::file_time_type::min();
+                                                    : std::filesystem::file_time_type::min();
     RECT outer{}, client{}, outerAfter{}, clientAfter{};
     GetWindowRect(target, &outer);
     GetClientRect(target, &client);
@@ -136,8 +158,8 @@ int wmain(int argc, wchar_t **argv) {
     cls.lpfnWndProc = DefWindowProcW;
     cls.lpszClassName = styler::ControllerClass;
     RegisterClassW(&cls);
-    auto owner = CreateWindowW(cls.lpszClassName, L"Read-only WinUI title research", 0, 0, 0, 0, 0,
-                               nullptr, nullptr, cls.hInstance, nullptr);
+    auto owner = CreateWindowW(cls.lpszClassName, L"Read-only WinUI title research", 0, 0, 0, 0, 0, nullptr, nullptr,
+                               cls.hInstance, nullptr);
     if (!owner)
         return GetLastError();
     bool unexpectedlyAttached{};

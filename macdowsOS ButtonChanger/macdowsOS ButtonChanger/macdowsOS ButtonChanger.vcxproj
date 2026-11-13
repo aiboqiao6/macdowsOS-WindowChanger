@@ -254,6 +254,8 @@
     <None Include="../../demos/window-styler/research/winui3-probe/title-read.md" />
     <None Include="../../demos/window-styler/research/winui3-probe/native-island-fixture.cpp" />
     <None Include="../../demos/window-styler/research/winui3-probe/native-island-closed-title.cpp" />
+    <None Include="../../demos/window-styler/research/winui3-probe/tab-strip-slot.h" />
+    <None Include="../../demos/window-styler/research/winui3-probe/tab-strip-tests.cpp" />
     <None Include="../../demos/window-styler/research/winui3-probe/native-island-frame.h" />
     <None Include="../../demos/window-styler/research/winui3-probe/native-island.cpp" />
     <None Include="../../demos/window-styler/research/winui3-probe/test-native-island.ps1" />
