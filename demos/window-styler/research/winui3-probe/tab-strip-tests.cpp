@@ -12,6 +12,8 @@ BOOL WINAPI ShowTabFixture(HWND window, int command);
 #include <winrt/Microsoft.UI.Xaml.Data.h>
 #include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
 #include <winrt/Microsoft.UI.Xaml.Automation.Provider.h>
+#include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
+#include <winrt/Windows.Storage.Streams.h>
 #include <iostream>
 #include <filesystem>
 #include <fstream>
@@ -141,9 +143,114 @@ c::Button retained{nullptr};
 std::shared_ptr<TabStripSlot::Commands> retiredCommands;
 RECT originalOuter{};
 LONG_PTR originalStyle{};
+struct Raster {
+    int32_t width{}, height{};
+    std::vector<uint8_t> pixels;
+    bool operator==(Raster const &) const = default;
+} captured, baseline, stableRaster;
+winrt::Windows::Foundation::IAsyncAction capture{nullptr};
+ULONGLONG rasterStableSince{};
+unsigned rasterSamples{};
+
+void SaveRaster(Raster const &raster, const wchar_t *label) {
+    wchar_t executable[32768]{};
+    winrt::check_bool(GetModuleFileNameW(nullptr, executable, 32768) != 0);
+    static const auto prefix =
+        L"tab-raster-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()) + L"-";
+    auto file = std::filesystem::path(executable).parent_path() / (prefix + label + L".bmp");
+    if (std::filesystem::exists(file))
+        throw std::runtime_error("refusing to overwrite owned raster evidence");
+    BITMAPFILEHEADER header{};
+    header.bfType = 0x4d42;
+    header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);
+    header.bfSize = header.bfOffBits + static_cast<DWORD>(raster.pixels.size());
+    BITMAPINFOHEADER info{};
+    info.biSize = sizeof(info);
+    info.biWidth = raster.width;
+    info.biHeight = -raster.height;
+    info.biPlanes = 1;
+    info.biBitCount = 32;
+    info.biCompression = BI_RGB;
+    std::ofstream output(file, std::ios::binary);
+    output.write(reinterpret_cast<const char *>(&header), sizeof(header));
+    output.write(reinterpret_cast<const char *>(&info), sizeof(info));
+    output.write(reinterpret_cast<const char *>(raster.pixels.data()), raster.pixels.size());
+    if (!output)
+        throw std::runtime_error("cannot save owned raster evidence");
+    std::cout << "tab-raster-file=" << winrt::to_string(file.wstring()) << '\n';
+}
+void RasterDifference() {
+    if (captured.width != baseline.width || captured.height != baseline.height) {
+        std::cout << "tab-raster-diff=different-dimensions\n";
+        return;
+    }
+    size_t count{};
+    int left = captured.width, top = captured.height, right = -1, bottom = -1;
+    for (int y = 0; y < captured.height; ++y)
+        for (int x = 0; x < captured.width; ++x) {
+            auto offset = (size_t(y) * captured.width + x) * 4;
+            if (memcmp(captured.pixels.data() + offset, baseline.pixels.data() + offset, 4)) {
+                ++count;
+                left = std::min(left, x);
+                top = std::min(top, y);
+                right = std::max(right, x);
+                bottom = std::max(bottom, y);
+            }
+        }
+    std::cout << "tab-raster-diff=" << count << " bounds=" << left << ',' << top << ',' << right << ',' << bottom
+              << " tab-widths=" << fixture.items[0].ActualWidth() << ',' << fixture.items[1].ActualWidth() << '\n';
+}
+winrt::Windows::Foundation::IAsyncAction CaptureTab(std::wstring label) {
+    auto root = fixture.app->body;
+    x::Media::Imaging::RenderTargetBitmap image;
+    co_await image.RenderAsync(root);
+    auto buffer = co_await image.GetPixelsAsync();
+    Raster result{image.PixelWidth(), image.PixelHeight(), std::vector<uint8_t>(buffer.Length())};
+    winrt::Windows::Storage::Streams::DataReader::FromBuffer(buffer).ReadBytes(result.pixels);
+    std::cout << "tab-raster=" << result.width << 'x' << result.height << " bytes=" << result.pixels.size() << '\n';
+    captured = std::move(result);
+    SaveRaster(captured, label.c_str());
+}
+bool CaptureReady() {
+    if (capture.Status() == winrt::Windows::Foundation::AsyncStatus::Started)
+        return false;
+    capture.GetResults();
+    capture = nullptr;
+    return true;
+}
+bool RasterStable(const wchar_t *prefix) {
+    if (!rasterSamples || captured != stableRaster) {
+        stableRaster = captured;
+        rasterStableSince = GetTickCount64();
+    }
+    ++rasterSamples;
+    const auto duration = GetTickCount64() - rasterStableSince;
+    if (duration >= 300) {
+        std::cout << "tab-raster-stable-ms=" << duration << " samples=" << rasterSamples << '\n';
+        return true;
+    }
+    // Establish stability independently of the reference. Do not search for a
+    // matching frame, modify pixels or disable the host's native animations.
+    capture = CaptureTab(std::wstring(prefix) + L"-" + std::to_wstring(rasterSamples));
+    return false;
+}
+size_t SolidPixels(uint8_t red, uint8_t green, uint8_t blue) {
+    size_t count{};
+    for (size_t i = 0; i + 3 < captured.pixels.size(); i += 4)
+        if (captured.pixels[i] == blue && captured.pixels[i + 1] == green && captured.pixels[i + 2] == red &&
+            captured.pixels[i + 3] == 255)
+            ++count;
+    std::cout << "tab-raster-solid=" << unsigned(red) << ',' << unsigned(green) << ',' << unsigned(blue)
+              << " count=" << count << '\n';
+    return count;
+}
 
 void Finish(bool success) {
     KillTimer(nullptr, timer);
+    if (capture) {
+        capture.Cancel();
+        capture = nullptr;
+    }
     slot.reset();
     originalRoots = {nullptr, nullptr, nullptr, nullptr, nullptr};
     selected = nullptr;
@@ -289,10 +396,29 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
             StableContent();
             ReadOnlyTitle();
             RejectOtherWindow();
+            stage = 30;
+            rasterSamples = 0;
+            capture = CaptureTab(L"original");
+        } else if (stage == 30 && CaptureReady() && RasterStable(L"original")) {
+            Check(captured.width > 0 && captured.height > 0 &&
+                      captured.pixels.size() == size_t(captured.width) * captured.height * 4,
+                  "framework rendering exports the complete nonempty original tab island");
+            baseline = captured;
+            SaveRaster(baseline, L"original-stable");
             slot = std::make_unique<TabStripSlot>(fixture.app->hwnd, tabs);
             slot->Apply();
             stage = 1;
         } else if (stage == 1 && slot->Ready()) {
+            stage = 31;
+            rasterSamples = 0;
+            capture = CaptureTab(L"attached");
+        } else if (stage == 31 && CaptureReady() && RasterStable(L"attached")) {
+            SaveRaster(captured, L"attached-stable");
+            Check(captured.width == baseline.width && captured.height == baseline.height,
+                  "the rendered island retains its complete original bitmap dimensions");
+            Check(SolidPixels(255, 95, 87) >= 40, "the complete island bitmap contains the rendered red light");
+            Check(SolidPixels(255, 189, 46) >= 40, "the complete island bitmap contains the rendered yellow light");
+            Check(SolidPixels(40, 200, 64) >= 40, "the complete island bitmap contains the rendered green light");
             StableContent();
             Check(slot->Refresh(), "explicit layout refresh confirms the live header and updates capabilities");
             auto position = fixture.items[0].TransformToVisual(tabs).TransformPoint({0, 0});
@@ -323,6 +449,19 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
             SetWindowLongPtrW(fixture.app->hwnd, GWL_STYLE, originalStyle);
             slot->UpdateCapabilities();
             StableContent();
+            slot->Restore();
+            stage = 32;
+            rasterSamples = 0;
+            capture = CaptureTab(L"restored");
+        } else if (stage == 32 && CaptureReady() && RasterStable(L"restored")) {
+            SaveRaster(captured, L"restored-stable");
+            RasterDifference();
+            Check(captured == baseline, "normal undo restores every byte of the complete original tab island bitmap "
+                                        "without masking or tolerance");
+            slot = std::make_unique<TabStripSlot>(fixture.app->hwnd, tabs);
+            slot->Apply();
+            stage = 33;
+        } else if (stage == 33 && slot->Ready()) {
             auto theme = tabs.ActualTheme() != x::ElementTheme::Light;
             fixture.Theme(theme);
             stage = 2;

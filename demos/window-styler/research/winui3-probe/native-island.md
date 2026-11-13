@@ -66,6 +66,8 @@ Debug 时指定各脚本对应的 Debug FixtureDirectory、HostDirectory（第�
 
 按钮测试调用公共 ButtonAutomationPeer 的 Invoke，经过真实 Click 回调并确认投递 SC_CLOSE/SC_MINIMIZE/SC_MAXIMIZE；自有窗口子类拦截这三条消息，不真正关闭、最小化或最大化。它验证命令路径和失效保护，不证明真实鼠标命中、拖动、系统动作、键盘或 IME 已通过。最终通过 EM_UNDO 验证原 EDIT 确实能恢复接管前文档，不只检查 EM_CANUNDO。
 
+测试还调用公共 RenderTargetBitmap.RenderAsync/GetPixelsAsync 导出原标签根的完整框架位图，验证三灯确实绘出，并在正常撤销后逐字节比较整个 BGRA 缓冲区和原尺寸。分别为原图、附加图及恢复图独立采样，连续 300ms 完全相同才认为稳定；不寻找与参考恰好相同的帧，不修改像素、关闭原动画或增加容差。最初失败图捕获了原 TabView 尚未结束的入场动画，原始位图和失败记录保留。每次采样保存独立的原始 BMP 到忽略的构建目录，稳定前后均保留。这个输出只属于原标签根，不包含其他岛屿、原生 EDIT、非客户区或屏幕背景；它不是完整 HWND 截图。
+
 此事务没有隐藏禁用原生标题按钮，也没有调整原非客户区输入区域；测试明确断言 native style 不变。记事本的标签岛屿还带有宿主自己的水平偏移和动态布局，原生按钮隐藏、左侧最终定位、输入区域及完整撤销必须另行完成。不能将该 Header 原型当成记事本适配完成，不能并入正式自动接管或运行包。
 
 ~~~powershell
