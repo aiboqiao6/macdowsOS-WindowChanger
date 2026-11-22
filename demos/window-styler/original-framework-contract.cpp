@@ -33,6 +33,25 @@ HWND Create(const wchar_t *name, HWND parent = nullptr) {
     return CreateWindowW(name, L"Owned original-framework registry contract", parent ? WS_CHILD : WS_OVERLAPPEDWINDOW,
                          30, 30, 800, 600, parent, nullptr, cls.hInstance, nullptr);
 }
+bool Caption(HWND window, TITLEBARINFOEX &info) {
+    info = {};
+    info.cbSize = sizeof(info);
+    return Send(window, WM_GETTITLEBARINFOEX, 0, reinterpret_cast<LPARAM>(&info)) != -1;
+}
+bool HiddenCaption(const TITLEBARINFOEX &info) {
+    for (auto index : {2, 3, 5})
+        if ((info.rgstate[index] & (STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_UNAVAILABLE)) !=
+                (STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_UNAVAILABLE) ||
+            !IsRectEmpty(&info.rgrect[index]))
+            return false;
+    return true;
+}
+bool SameCaption(const TITLEBARINFOEX &before, const TITLEBARINFOEX &after) {
+    for (auto index : {2, 3, 5})
+        if (before.rgstate[index] != after.rgstate[index] || !EqualRect(&before.rgrect[index], &after.rgrect[index]))
+            return false;
+    return true;
+}
 } // namespace
 int wmain(int argc, wchar_t **argv) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -52,7 +71,7 @@ int wmain(int argc, wchar_t **argv) {
     if (!wcscmp(argv[1], L"--reject-fixtures")) {
         auto registry = styler::ReadAdapterRegistry(styler::ExecutableDirectory());
         for (const auto &entry : registry)
-            if (entry.id == 268 || entry.id == 272 || entry.id == 279)
+            if (entry.id == 268 || entry.id == 272 || entry.id == 273 || entry.id == 279)
                 check(
                     std::filesystem::is_regular_file(std::filesystem::path(styler::ExecutableDirectory()) / entry.file),
                     "registered original-framework module exists in the shipped runtime");
@@ -93,6 +112,12 @@ int wmain(int argc, wchar_t **argv) {
         GetWindowRect(window, &before);
         GetClientRect(window, &clientBefore);
         auto style = GetWindowLongPtrW(window, GWL_STYLE), exStyle = GetWindowLongPtrW(window, GWL_EXSTYLE);
+        wchar_t targetClass[128]{};
+        GetClassNameW(window, targetClass, 128);
+        const bool office = wcscmp(targetClass, L"TXGuiFoundation") && wcsncmp(targetClass, L"Afx", 3);
+        TITLEBARINFOEX captionBefore{};
+        if (office)
+            check(Caption(window, captionBefore), "save original Office caption button accessibility state");
         auto candidate = styler::InspectInline(window);
         check(candidate.supported && candidate.adapterMode == styler::Adapter::Automatic,
               "main controller discovers a registered original-framework candidate");
@@ -134,8 +159,16 @@ int wmain(int argc, wchar_t **argv) {
                     ReleaseDC(nullptr, screen);
             } else if (wcsncmp(name, L"Afx", 3)) {
                 auto metrics = RegisterWindowMessageW(L"Macdows.OfficeLease.Metrics.v1");
-                check(Send(window, metrics, 1) == 1 && Send(window, metrics, 3, 3) == 7,
+                const auto healthy = Send(window, metrics, 1);
+                const auto foreground = GetForegroundWindow();
+                const auto painted = Send(window, metrics, 3, 3);
+                std::cout << "Office metrics: health=" << healthy << "; painted=" << painted
+                          << "; foreground=" << foreground << "; target=" << window << std::endl;
+                check(healthy == 1 && painted == 7,
                       "main Office runtime paints all three actual original-tree light colors");
+                TITLEBARINFOEX hidden{};
+                check(Send(window, metrics, 7) == 1 && Caption(window, hidden) && HiddenCaption(hidden),
+                      "original Office buttons are typed false, inaccessible and have no native hit rectangles");
             }
             check(session.Apply(window).ok, "main automatic repeated apply remains idempotent");
             check(session.Restore(window).ok, "main automatic explicit undo succeeds");
@@ -148,6 +181,11 @@ int wmain(int argc, wchar_t **argv) {
                   GetWindowLongPtrW(window, GWL_STYLE) == style && GetWindowLongPtrW(window, GWL_EXSTYLE) == exStyle &&
                   !GetPropW(window, styler::OwnerProperty) && !GetPropW(window, styler::InlineProperty),
               "main runtime undo preserves original geometry styles and removes all session properties");
+        if (office) {
+            TITLEBARINFOEX captionAfter{};
+            check(Caption(window, captionAfter) && SameCaption(captionBefore, captionAfter),
+                  "main Office undo restores exact original caption accessibility and button rectangles");
+        }
         check(placement.Finish(), "main runtime verifier restores current user placement and foreground");
     }
     DestroyWindow(owner);

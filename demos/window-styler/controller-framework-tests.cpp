@@ -118,7 +118,18 @@ int wmain(int argc, wchar_t **argv) {
             if (tx || office) {
                 auto metrics = RegisterWindowMessageW(tx ? L"Macdows.TXGuiLeftLease.Metrics.v1"
                                                          : L"Macdows.OfficeLease.Metrics.v1");
-                check(Send(target, metrics, 1) == 1 && Send(target, metrics, 3, 0) == 7,
+                const auto healthy = Send(target, metrics, 1);
+                const auto foreground = GetForegroundWindow();
+                DWORD foregroundPid{};
+                GetWindowThreadProcessId(foreground, &foregroundPid);
+                wchar_t foregroundClass[128]{};
+                GetClassNameW(foreground, foregroundClass, 128);
+                const auto painted = Send(target, metrics, 3, 0);
+                std::cout << "Framework metrics: health=" << healthy << "; painted=" << painted
+                          << "; foreground=" << foreground << "; foregroundPid=" << foregroundPid
+                          << "; target=" << target << "; targetPid=" << pid << std::endl;
+                std::wcout << L"Foreground class: " << foregroundClass << std::endl;
+                check(healthy == 1 && painted == 7,
                       "automatically selected original backend paints all three real light colors");
             } else {
                 auto metrics = RegisterWindowMessageW(L"Macdows.MfcPaintProbe.Metrics.v1");

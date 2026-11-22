@@ -101,8 +101,8 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS winui3-inline.cpp
 # whose directory still contains the previous adapter registry.
 set(original_hash "${STYLER_ORIGINAL_FRAMEWORKS}")
 if(STYLER_ORIGINAL_FRAMEWORKS)
-    set(original_revision_sources original-framework-adapters.cmake)
-    foreach(name mfc-paint.cpp office.cpp office-layout.h office-lease.h office-edit-title.h
+    set(original_revision_sources original-framework-adapters.cmake office-21048-profile.cmake)
+    foreach(name mfc-paint.cpp office.cpp office-layout.h office-lease.h office-edit-title.h office-21048-verify.h
                  txgui.cpp txgui-events.h txgui-caption.h txgui-tree-budget.h txgui-frame-layout.h
                  txgui-order.h txgui-stack-order.h txgui-left-layout.h txgui-left-live.h txgui-left-lease.h
                  txgui-live-state.h txgui-caption-pixels.h txgui-paint-observer.h txgui-d2d-filter.h)
@@ -434,6 +434,10 @@ if(TARGET MacdowsOfficeCaption)
     string(APPEND adapter_ids ",272")
     string(APPEND adapter_ini "[Adapter272]\nName=Office NetUI original title / guarded ABI and layout\nFramework=office-netui\nChildClass=NetUIHWND\nRequiredModules=mso40uiwin32client.dll,mso98win32client.dll,mso.dll\nModuleCodeView=2D2645957EA843188AA1897691F9D8EE2\nFile=$<TARGET_FILE_NAME:MacdowsOfficeCaption>\n")
 endif()
+if(TARGET MacdowsOffice21048Caption)
+    string(APPEND adapter_ids ",273")
+    string(APPEND adapter_ini "[Adapter273]\nName=Office NetUI 16.0.14334.21048 original title / guarded ABI and layout\nFramework=office-netui\nChildClass=NetUIHWND\nRequiredModules=mso40uiwin32client.dll,mso98win32client.dll,mso.dll\nModuleCodeView=3E4B8C5AB16A4DE5B063338EDF2BB5462\nFile=$<TARGET_FILE_NAME:MacdowsOffice21048Caption>\n")
+endif()
 if(TARGET MacdowsTxGuiCaption)
     string(APPEND adapter_ids ",279")
     string(APPEND adapter_ini "[Adapter279]\nName=TXGui original caption controls / guarded ABI\nFramework=txgui\nClass=TXGuiFoundation\nRequiredModules=GF.dll,Common.dll\nModuleCodeView=D262C6B9151B474885A4AF86943CFC6318\nFile=$<TARGET_FILE_NAME:MacdowsTxGuiCaption>\n")
@@ -471,7 +475,7 @@ endif()
 if(STYLER_QT_SAMPLES)
     string(APPEND runtime_files "$<TARGET_FILE_NAME:MacdowsQtInline>\n")
 endif()
-foreach(original_target MacdowsMfcCaption MacdowsOfficeCaption MacdowsTxGuiCaption)
+foreach(original_target MacdowsMfcCaption MacdowsOfficeCaption MacdowsOffice21048Caption MacdowsTxGuiCaption)
     if(TARGET ${original_target})
         string(APPEND runtime_files "$<TARGET_FILE_NAME:${original_target}>\n")
     endif()

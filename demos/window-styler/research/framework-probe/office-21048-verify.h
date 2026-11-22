@@ -1,5 +1,5 @@
 #pragma once
-// Research only. A matching build identity is necessary but not sufficient:
+// A matching build identity is necessary but not sufficient:
 // also check export ordinals, function bytes and immutable property names.
 #include "../../pe-identity.h"
 #include <cstring>

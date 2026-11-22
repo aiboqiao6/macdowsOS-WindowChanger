@@ -95,11 +95,9 @@ struct OfficeLease {
                 api.Release(value.original);
                 value.original = latest;
             }
-            auto hr = value.property == 0x83fb10
-                          ? api.Visible(value.node, false)
-                          : value.property == 0x83fba0
-                          ? api.Set(value.node, value.property, api.False())
-                          : value.property == 0x83f398
+            auto hr = value.property == 0x83fb10   ? api.Visible(value.node, false)
+                      : value.property == 0x83fba0 ? api.Set(value.node, value.property, api.False())
+                      : value.property == 0x83f398
                           ? api.Padding(value.node, 126)
                           : api.Int(value.node, value.property, value.property == 0x837128 ? 0 : HTCAPTION);
             value.changed = true;
@@ -349,7 +347,8 @@ struct OfficeLease {
                 RECT outer{}, client{};
                 GetWindowRect(s->window, &outer);
                 GetClientRect(s->rootWindow, &client);
-                return OfficeLocalRect(s->editor.children.front()).right + 126 + 600 + outer.right - outer.left - client.right;
+                return OfficeLocalRect(s->editor.children.front()).right + 126 + 600 + outer.right - outer.left -
+                       client.right;
             }
             if (wp == 3 && lp >= 0 && lp < 5) {
                 DwmFlush();
@@ -480,9 +479,9 @@ struct OfficeLease {
         auto prepare = [&]() {
             std::string name;
             constexpr LONG_PTR bits = WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
-            if (!process || !api.False() || GetPropW(window, styler::OwnerProperty) || GetPropW(window, styler::InlineProperty) ||
-                IsIconic(window) || !IsWindowEnabled(window) || GetDpiForWindow(window) != 144 ||
-                (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_LAYOUTRTL) ||
+            if (!process || !api.False() || GetPropW(window, styler::OwnerProperty) ||
+                GetPropW(window, styler::InlineProperty) || IsIconic(window) || !IsWindowEnabled(window) ||
+                GetDpiForWindow(window) != 144 || (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_LAYOUTRTL) ||
                 (GetWindowLongPtrW(window, GWL_STYLE) & bits) != bits || !ClassName(root, name))
                 return false;
             editing = name == "HWNDElement";
@@ -495,15 +494,15 @@ struct OfficeLease {
                     return false;
                 auto padding = saved.back().original;
                 if (Value<short>(padding + 4) != -1 &&
-                    (Value<short>(padding + 4) != 10 || Value<RECT>(padding + 8).left ||
-                     Value<RECT>(padding + 8).top || Value<RECT>(padding + 8).right || Value<RECT>(padding + 8).bottom))
+                    (Value<short>(padding + 4) != 10 || Value<RECT>(padding + 8).left || Value<RECT>(padding + 8).top ||
+                     Value<RECT>(padding + 8).right || Value<RECT>(padding + 8).bottom))
                     return false;
                 for (auto child : editor.children)
                     if (!Retain(child))
                         return false;
             } else if (name != "FullpageUIWindow" || !parent ||
-                Value<BYTE **>(parent) != reinterpret_cast<BYTE **>(api.base + 0x84ba60) ||
-                Value<BYTE *>(parent + 8) != root || !Retain(root) || !Retain(parent))
+                       Value<BYTE **>(parent) != reinterpret_cast<BYTE **>(api.base + 0x84ba60) ||
+                       Value<BYTE *>(parent + 8) != root || !Retain(root) || !Retain(parent))
                 return false;
             // Pin the complete path from the selected original group to root.
             BYTE *caption{};
@@ -605,7 +604,7 @@ struct OfficeLease {
 } // namespace
 
 extern "C" __declspec(dllexport) DWORD WINAPI MacdowsAdapterAttachV1(const styler::AdapterContextV1 *context) {
-    if (!styler::ValidContext(context) || context->adapterId != 272 || !selection.root ||
+    if (!styler::ValidContext(context) || context->adapterId != OfficeAdapterId || !selection.root ||
         GetWindowThreadProcessId(context->window, nullptr) != GetCurrentThreadId() || !Runtime())
         return ERROR_NOT_SUPPORTED;
     auto base = modules[0].base;

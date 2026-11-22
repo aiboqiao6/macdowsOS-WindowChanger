@@ -31,6 +31,19 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8)
         "${CMAKE_CURRENT_SOURCE_DIR}/pe-identity.h")
     target_compile_definitions(MacdowsOfficeCaption PRIVATE OFFICE_LEASE_EXPERIMENT)
     target_link_libraries(MacdowsOfficeCaption PRIVATE comctl32 gdi32 dwmapi)
+    include(office-21048-profile.cmake)
+    office_21048_sources(office_21048_dir "${CMAKE_CURRENT_SOURCE_DIR}" "production-273")
+    original_framework_module(MacdowsOffice21048Caption "${office_21048_dir}/office.cpp"
+        "${original_framework_dir}/office.cpp" "${original_framework_dir}/office-layout.h"
+        "${original_framework_dir}/office-lease.h" "${original_framework_dir}/office-edit-title.h"
+        "${original_framework_dir}/office-21048-verify.h" "${CMAKE_CURRENT_SOURCE_DIR}/office-21048-profile.cmake"
+        "${CMAKE_CURRENT_SOURCE_DIR}/native-style-view.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/pe-imports.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/caption-colors.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/nonclient-frame.h" "${CMAKE_CURRENT_SOURCE_DIR}/adapter-api.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/pe-identity.h")
+    target_compile_definitions(MacdowsOffice21048Caption PRIVATE OFFICE_LEASE_EXPERIMENT STYLER_OFFICE_ADAPTER_ID=273)
+    target_link_libraries(MacdowsOffice21048Caption PRIVATE comctl32 gdi32 dwmapi)
 else()
     set(txgui_dependencies "")
     foreach(name txgui.cpp txgui-events.h txgui-caption.h txgui-tree-budget.h txgui-frame-layout.h

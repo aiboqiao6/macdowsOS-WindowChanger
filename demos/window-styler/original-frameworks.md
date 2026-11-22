@@ -1,8 +1,8 @@
 # MFC/BCG、Office NetUI、TXGui 原树三灯
 
-当前已将三个已验证 profile 接入主控制器。不是任意版本、任意 Office 窗口的通用兼容保证；未知 ABI、未知树结构、空间不足明确拒绝，不使用覆盖窗口或原生标题栏兜底。
+当前已将四个 ABI profile 接入主控制器，Office 新旧版本分别注册。不是任意版本、任意 Office 窗口的通用兼容保证；未知 ABI、未知树结构、空间不足明确拒绝，不使用覆盖窗口或原生标题栏兜底。
 
-2026-11-23 核对：本机 Office 已更新到 `16.0.14334.21048`，不匹配下表中旧版正式 profile。新版 Word/Excel/PowerPoint 已在隔离研究后端完成 Debug/Release 后台接管、原按钮隐藏禁用、精确撤销，以及当前黑白主题的实际绘制和鼠标按钮验证。Word/Excel 交互后的逐地址树比较失败仍保留，并另有未注入原生变化对照；尚未注册到正式自动接管。当前范围和复现入口见 `verification-v46.md`、`verification-v45.md`，不能把历史 Office 结果视为新版本通过。
+2026-11-23：本机 Office `16.0.14334.21048` 已加入当前源码与候选构建，独立注册为 273，旧版 272 保留。新 profile 在调用原框架前验证三模块 CodeView、17 个导出入口、两个内部入口及属性名，沿用已验证的原布局和撤销实现。研究验证覆盖 Debug/Release 后台事务、原按钮隐藏禁用、精确即时撤销，以及当前黑白主题和实际鼠标按钮。交互后原生节点重建和历史逐地址失败独立保留。正式候选验证见 `verification-v47.md`，原生变化对照及研究证据见 `verification-v46.md`、`verification-v45.md`。
 
 ## 使用
 
@@ -24,7 +24,8 @@
 | 后端 | 已验证 profile |
 | --- | --- |
 | MFC/BCG x64 | 原 BCG Ribbon 标题按钮，CodeView `73D590B1-7FA3-4F9D-9CE2-E2A6D801C11C` age 1；原 runtime class、命令、绘制和布局 ABI 校验 |
-| Office NetUI x64 | 本机 Office 模块三重 CodeView 校验，144 DPI、LTR；`FullpageUIWindow` 起始页，以及匹配双层标题容器和快捷工具栏/标题分组的 `HWNDElement` 编辑窗口；已验证空白 Word、Excel，其他结构或标题空间不足拒绝 |
+| Office NetUI x64，272 | 旧版三模块 CodeView profile，144 DPI、LTR；`FullpageUIWindow` 起始页，以及匹配双层标题容器和快捷工具栏/标题分组的 `HWNDElement` 编辑窗口；历史验证覆盖空白 Word、Excel |
+| Office NetUI x64，273 | `16.0.14334.21048` 精确三模块/入口 profile，144 DPI、LTR；同一原树布局契约，已验证当前黑白主题的空白 Word、Excel 和 PowerPoint 编辑窗口；其他结构或标题空间不足拒绝 |
 | TXGui x86 | GF CodeView `D262C6B9-151B-4748-85A4-AF86943CFC63` age 24，144 DPI、LTR、完整树和标题/header 几何匹配；空间不足拒绝 |
 
 TXGui 迁移的是三枚原 Button，保留原点击绑定与原 HWND 输入路径；没有直接调用宿主回调。原 D2D 内容阶段画三灯，普通重排处理窗口缩放；定时器只检测所有者/树失效，不跟随布局。关闭按钮不在自动验证中点击，实际关闭或托盘行为沿用宿主原按钮策略。

@@ -393,6 +393,9 @@
     <None Include="..\..\demos\window-styler\original-framework-adapters.cmake">
       <Filter>框架研究</Filter>
     </None>
+    <None Include="..\..\demos\window-styler\office-21048-profile.cmake">
+      <Filter>框架研究</Filter>
+    </None>
     <None Include="..\..\demos\window-styler\original-framework-contract.cpp">
       <Filter>框架研究</Filter>
     </None>
@@ -631,6 +634,7 @@
     <None Include="../../demos/window-styler/verification-v44.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v45.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v46.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/verification-v47.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/research/office-readonly-profiles.py"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/research/test-office-readonly-profiles.py"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/research/test-office-21048-background.ps1"><Filter>框架研究</Filter></None>

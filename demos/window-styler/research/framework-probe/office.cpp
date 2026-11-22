@@ -8,7 +8,13 @@
 #include <string>
 #include <vector>
 
+#ifndef STYLER_OFFICE_ADAPTER_ID
+#define STYLER_OFFICE_ADAPTER_ID 272
+#endif
+
 namespace {
+constexpr DWORD OfficeAdapterId = STYLER_OFFICE_ADAPTER_ID;
+static_assert(OfficeAdapterId == 272 || OfficeAdapterId == 273);
 bool Read(const void *address, void *destination, size_t length) {
     SIZE_T read{};
     return address && ReadProcessMemory(GetCurrentProcess(), address, destination, length, &read) && read == length;
@@ -217,7 +223,8 @@ extern "C" __declspec(dllexport) DWORD WINAPI MacdowsAdapterProbeV1(const styler
            << ",\"activeCaptionGroups\":" << activeGroups << "}\n";
     if (errors || activeGroups != 1)
         selection = {};
-    return (context->adapterId == 270 || context->adapterId == 271 || context->adapterId == 272) && selection.root
+    return (context->adapterId == 270 || context->adapterId == 271 || context->adapterId == OfficeAdapterId) &&
+                   selection.root
                ? ERROR_SUCCESS
                : ERROR_NOT_SUPPORTED;
 }

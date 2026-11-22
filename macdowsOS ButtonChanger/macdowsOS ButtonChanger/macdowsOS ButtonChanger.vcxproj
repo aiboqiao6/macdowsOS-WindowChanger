@@ -167,6 +167,7 @@
     <None Include="..\..\demos\window-styler\research\framework-probe\txgui-caption-pixels.h" />
     <None Include="..\..\demos\window-styler\research\test-txgui-title.ps1" />
     <None Include="..\..\demos\window-styler\original-framework-adapters.cmake" />
+    <None Include="..\..\demos\window-styler\office-21048-profile.cmake" />
     <None Include="..\..\demos\window-styler\original-framework-contract.cpp" />
     <None Include="..\..\demos\window-styler\original-frameworks.md" />
     <None Include="..\..\demos\window-styler\package-original-frameworks.ps1" />
@@ -277,6 +278,7 @@
     <None Include="../../demos/window-styler/verification-v44.md" />
     <None Include="../../demos/window-styler/verification-v45.md" />
     <None Include="../../demos/window-styler/verification-v46.md" />
+    <None Include="../../demos/window-styler/verification-v47.md" />
     <None Include="../../demos/window-styler/research/office-readonly-profiles.py" />
     <None Include="../../demos/window-styler/research/test-office-readonly-profiles.py" />
     <None Include="../../demos/window-styler/research/test-office-21048-background.ps1" />
