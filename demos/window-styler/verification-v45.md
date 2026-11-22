@@ -67,6 +67,14 @@ Debug、Release 的 Word/Excel 四组异常退出均通过：控制器预期退�
 
 上一笔源码提交 ab97664 的 GitHub 四配置构建与契约检查已成功，运行号 45068718869。以上新增内容只扩展研究验证，不改变正式运行时、注册配置或完整候选包。
 
+## PowerPoint 无文档视图外壳的后台扩展
+
+公开验证器新增显式 `-Applications PowerPoint`，默认仍为 Word/Excel。PowerPoint 没有沿用 Word/Excel 的 UserControl 判据；开始前要求没有 POWERPNT 进程，COM 创建后只有一个新进程、应用不可见、Presentations 为空，并仅枚举该 PID 的唯一 PPTFrameClass 再核对 HWND/PID。创建自己的空白演示文稿时使用公共 Presentations.Add(WithWindow=msoFalse)，只在该应用内禁用宏和提示；退出时只将这个空白测试文稿标记为无需保存、关闭并正常 Quit。官方接口说明见 [Presentations.Add](https://learn.microsoft.com/en-us/office/vba/api/powerpoint.presentations.add) 与 [Application.Visible](https://learn.microsoft.com/en-us/office/vba/api/powerpoint.application.visible)。
+
+隐藏只读实例读到 162 节点。通过已有不激活显示入口初始化后为 2 个根、1243 节点；Release、Debug 的正常撤销及控制器异常退出四组均通过，两个会话属性清除，外框/客户区/样式与完整原树精确恢复，cleanupFailures=0，测试实例正常退出。仓库入口证据为 `office-powerpoint-public-Release-r48` 和 `office-powerpoint-*-r49`；r47 私有原型不重复累计。
+
+私有 r50 的后台 PrintWindow 图已查看：当前深色外壳左上三灯可见、快速工具栏右移、右侧原按钮消失，三色实心像素各 114；随后异常退出仍精确恢复。演示文稿没有打开文档视图，截图中的正文为空且编辑命令不可用；这不能声称幻灯片编辑器、放映、多文档或业务内容已适配。仍未执行物理按钮与真实主题切换，visualVerification=false。此版本的 PowerPoint 和 Word/Excel 一样没有注册到正式自动接管。
+
 ## WinUI 三像素差异仍未关闭
 
 新增私有自有进程诊断，按固定顺序重放程序化 TextBox 编辑/撤销重做、不激活窗口的尺寸往返和宿主主题往返，然后只进行一次最终 RenderTargetBitmap 正文捕获。原生对照先于各隔离操作生成；没有反复采集匹配帧、容差、遮罩或裁剪。深浅色各两组原生对照、位置往返、配色恢复、额外源创建/关闭、同代码标题事务和包内正式模块事务的正文结果分别一致：深色 BMP SHA256 `1402018408EE0406E4383B6B03722E526BCCE76A9811E86E7E5C7A58B6DBE62F`，浅色 `2861AE08BD0F6820452981EB2A35EA549109133FEEA16C75A1A58CCAF8FF8F69`。

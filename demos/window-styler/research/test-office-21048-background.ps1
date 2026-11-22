@@ -3,7 +3,7 @@ param(
  [string]$OutputDirectory=(Join-Path $PSScriptRoot '../out/live-v45/office-background-Release'),
  [switch]$ReadOnly,
  [ValidateSet('normal','owner-loss','resize')][string]$Scenario='normal',
- [ValidateSet('Word','Excel')][string[]]$Applications=@('Word','Excel')
+ [ValidateSet('Word','Excel','PowerPoint')][string[]]$Applications=@('Word','Excel')
 )
 $ErrorActionPreference='Stop'
 $Candidate=-not $ReadOnly
@@ -20,6 +20,10 @@ public sealed class OwnedOfficeHostOutput {
  private async Task<string> Read(StreamReader reader){var text=new System.Text.StringBuilder();string line;while((line=await reader.ReadLineAsync().ConfigureAwait(false))!=null){text.AppendLine(line);if(line=="ready-for-owner-loss=1")Ready=true;}return text.ToString();}
 }
 public static class OwnedOfficeRead {
+ public delegate bool Callback(IntPtr h,IntPtr p);
+ [DllImport("user32.dll")]static extern bool EnumWindows(Callback callback,IntPtr parameter);
+ [DllImport("user32.dll",CharSet=CharSet.Unicode)]static extern int GetClassName(IntPtr h,System.Text.StringBuilder name,int capacity);
+ public static IntPtr PowerPointFrame(uint pid){var found=IntPtr.Zero;int count=0;EnumWindows((h,p)=>{uint id;GetWindowThreadProcessId(h,out id);if(id==pid){var name=new System.Text.StringBuilder(256);GetClassName(h,name,name.Capacity);if(name.ToString()=="PPTFrameClass"){found=h;count++;}}return true;},IntPtr.Zero);if(count!=1)throw new Exception("Expected one owned PowerPoint frame: "+count);return found;}
  [StructLayout(LayoutKind.Sequential)]public struct R {public int l,t,r,b;}
  [DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);
  [DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();
@@ -38,7 +42,7 @@ foreach($application in $Applications){
  $out=Join-Path $OutputDirectory $application.ToLowerInvariant()
  if(Test-Path -LiteralPath $out){throw 'Use a new evidence directory'}
  [void](New-Item -ItemType Directory -Path $out)
- $name=if($application -eq 'Word'){'WINWORD'}else{'EXCEL'}
+ $name=switch($application){'Word'{'WINWORD'}'Excel'{'EXCEL'}'PowerPoint'{'POWERPNT'}}
  $existing=@(Get-Process $name -ErrorAction SilentlyContinue|ForEach-Object Id)
  $app=$null;$document=$null;$collection=$null;$windowObject=$null;$owned=$null;$ownedPid=0;$safeToQuit=$false;$succeeded=$false
  $record=[ordered]@{application=$application;scenario=$Scenario;existingProcessCount=$existing.Count;readerExecutedTargetCode=$false;injectionPerformed=$false;visualVerification=$false}
@@ -46,13 +50,13 @@ foreach($application in $Applications){
   if($existing.Count){throw 'Existing Office processes are left untouched; close them before using this owned-instance verifier'}
   $app=New-Object -ComObject ($application+'.Application')
   $newProcesses=@(Get-Process $name -ErrorAction SilentlyContinue | Where-Object {$existing -notcontains $_.Id})
-  if($newProcesses.Count -ne 1 -or $app.UserControl){throw 'COM instance is not one new automation-owned process; refusing to operate it'}
+  if($newProcesses.Count -ne 1 -or ($application -ne 'PowerPoint' -and $app.UserControl)){throw 'COM instance is not one new automation-owned process; refusing to operate it'}
   [uint32]$ownerPid=$newProcesses[0].Id
   $owned=Get-Process -Id $ownerPid
   if($owned.ProcessName -ne $name){throw 'Unexpected Office process'}
-  $safeToQuit=$true;$ownedPid=$ownerPid
   if($app.Visible){throw 'Owned Office instance is unexpectedly visible'}
-  $app.DisplayAlerts=0
+  $safeToQuit=$true;$ownedPid=$ownerPid
+  $app.DisplayAlerts=if($application -eq 'PowerPoint'){1}else{0}
   $record.version=$app.Version
   if($application -eq 'Word'){
    $app.AutomationSecurity=3
@@ -60,20 +64,28 @@ foreach($application in $Applications){
    $collection=$app.Documents
    $document=$collection.Add($missing,$false,0,$false)
    if($collection.Count -ne 1){throw 'Unexpected documents in the owned instance'}
-  }else{
+  }elseif($application -eq 'Excel'){
    $app.AutomationSecurity=3
    $collection=$app.Workbooks
    $document=$collection.Add()
    if($collection.Count -ne 1){throw 'Unexpected workbooks in the owned instance'}
+  }else{
+   $app.AutomationSecurity=3
+   $collection=$app.Presentations
+   if($collection.Count -ne 0){$safeToQuit=$false;throw 'Unexpected presentations in the new PowerPoint instance'}
+   # Public WithWindow=msoFalse creates only our blank test presentation.
+   $document=$collection.Add(0)
+   $record.presentationWithWindow=$false
+   if($collection.Count -ne 1){throw 'Unexpected presentations in the owned instance'}
   }
-  if($application -eq 'Word'){$windowObject=$document.ActiveWindow;$handle=[IntPtr]([long]$windowObject.Hwnd);[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($windowObject);$windowObject=$null}else{$handle=[IntPtr]([long]$app.Hwnd)}
+  if($application -eq 'Word'){$windowObject=$document.ActiveWindow;$handle=[IntPtr]([long]$windowObject.Hwnd);[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($windowObject);$windowObject=$null}elseif($application -eq 'PowerPoint'){$handle=[OwnedOfficeRead]::PowerPointFrame($ownerPid)}else{$handle=[IntPtr]([long]$app.Hwnd)}
   [uint32]$verifiedPid=0;[void][OwnedOfficeRead]::GetWindowThreadProcessId($handle,[ref]$verifiedPid)
   if($verifiedPid -ne $ownerPid -or $app.Visible -or [OwnedOfficeRead]::GetForegroundWindow() -eq $handle){throw 'Owned invisible HWND identity changed or became foreground'}
   $record.pid=$ownerPid;$record.hwnd=('0x{0:x}' -f $handle.ToInt64())
   if($Candidate){
    [void][OwnedOfficeRead]::SetWindowPos($handle,[IntPtr](1),160,160,1200,720,0x10)
    [void][OwnedOfficeRead]::EnableWindow($handle,$false)
-   try{$app.Visible=$true}finally{[void][OwnedOfficeRead]::EnableWindow($handle,$true)}
+   try{$app.Visible=if($application -eq 'PowerPoint'){-1}else{$true}}finally{[void][OwnedOfficeRead]::EnableWindow($handle,$true)}
    $record.backgroundShowMethod='owned HWND disabled during public Application.Visible; no foreground activation'
    [void][OwnedOfficeRead]::SetWindowPos($handle,[IntPtr](1),160,160,1200,720,0x10)
    Start-Sleep -Milliseconds 700
@@ -141,7 +153,7 @@ foreach($application in $Applications){
  }finally{
   if($safeToQuit){
    if($windowObject){[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($windowObject);$windowObject=$null}
-   if($document){if($application -eq 'Word'){$document.Close(0)}else{$document.Close($false)};[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($document);$document=$null}
+   if($document){if($application -eq 'Word'){$document.Close(0)}elseif($application -eq 'PowerPoint'){$document.Saved=-1;$document.Close()}else{$document.Close($false)};[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($document);$document=$null}
    if($collection){[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($collection);$collection=$null}
    if($application -eq 'Word'){$app.Quit(0)}else{$app.Quit()}
   }
