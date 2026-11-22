@@ -1,7 +1,8 @@
 param(
     [string]$FixtureDirectory=(Join-Path $PSScriptRoot '../../out/framework-probe-x64/winui-native-fixture/Release'),
     [string]$HostDirectory=(Join-Path $PSScriptRoot '../../out/framework-probe-x64/winui-native-research/Release'),
-    [string]$OutputDirectory=(Join-Path $PSScriptRoot '../../out/live-v36/native-lease-Release')
+    [string]$OutputDirectory=(Join-Path $PSScriptRoot '../../out/live-v36/native-lease-Release'),
+    [switch]$BackgroundOnly
 )
 $ErrorActionPreference='Stop'
 $fixturePath=Join-Path (Resolve-Path -LiteralPath $FixtureDirectory).Path 'WinUI3NativeIslandFixture.exe'
@@ -19,6 +20,7 @@ public static class NativeIslandLeaseContract {
  public delegate bool EnumProc(IntPtr h,IntPtr data);
  [StructLayout(LayoutKind.Sequential)] public struct R {public int l,t,r,b;}
  [StructLayout(LayoutKind.Sequential)] public struct P {public int x,y;}
+ [StructLayout(LayoutKind.Sequential)] struct Title {public int size;public R bar;[MarshalAs(UnmanagedType.ByValArray,SizeConst=6)]public uint[] state;[MarshalAs(UnmanagedType.ByValArray,SizeConst=6)]public R[] rect;}
  [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr c);
  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out R r);
  [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h,out R r);
@@ -29,12 +31,14 @@ public static class NativeIslandLeaseContract {
  [DllImport("user32.dll")] public static extern IntPtr GetWindowLongPtr(IntPtr h,int n);
  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+ [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr h);
  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int command);
  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback,IntPtr data);
  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern IntPtr GetProp(IntPtr h,string n);
  [DllImport("user32.dll")] public static extern IntPtr SendMessageTimeout(IntPtr h,uint m,IntPtr w,IntPtr l,uint f,uint t,out UIntPtr r);
  public static long Send(IntPtr h,uint m,long w=0){UIntPtr r;if(SendMessageTimeout(h,m,(IntPtr)w,IntPtr.Zero,2,2000,out r)==IntPtr.Zero)throw new Exception("Fixture timeout");return unchecked((long)r.ToUInt64());}
+ public static bool OldButtonsHidden(IntPtr h){var v=new Title{size=Marshal.SizeOf(typeof(Title)),state=new uint[6],rect=new R[6]};var p=Marshal.AllocHGlobal(v.size);try{Marshal.StructureToPtr(v,p,false);UIntPtr r;if(SendMessageTimeout(h,0x33f,IntPtr.Zero,p,2,2000,out r)==IntPtr.Zero)throw new Exception("Caption query timeout");v=(Title)Marshal.PtrToStructure(p,typeof(Title));foreach(var i in new[]{2,3,5})if((v.state[i]&0x18001)!=0x18001||v.rect[i].l!=0||v.rect[i].t!=0||v.rect[i].r!=0||v.rect[i].b!=0)return false;return true;}finally{Marshal.FreeHGlobal(p);}}
  public static IntPtr Find(uint pid){IntPtr result=IntPtr.Zero;EnumWindows((h,l)=>{uint p;GetWindowThreadProcessId(h,out p);if(p==pid&&GetProp(h,"Macdows.Research.NativeIsland.Owned")!=IntPtr.Zero){result=h;return false;}return true;},IntPtr.Zero);return result;}
  public static int[] Geometry(IntPtr h){R o,c;var p=new P();GetWindowRect(h,out o);GetClientRect(h,out c);ClientToScreen(h,ref p);return new[]{o.l,o.t,o.r,o.b,c.l,c.t,c.r,c.b,p.x,p.y};}
 }
@@ -57,7 +61,21 @@ function Send($handle,[int]$operation){
  $r=[NativeIslandLeaseContract]::Send($handle,0x8049,$operation)
  if($r -ne 0){throw ('Fixture command failed: '+$r)}
 }
+function CheckOriginalButtons($handle,[string]$name){
+ Check ([NativeIslandLeaseContract]::Find($fixture.Id) -eq $handle -and $fixture.Path -eq $fixturePath) ($name+' caption test target is the owned fixture')
+ $lease=Owner $handle
+ Check ($lease -ne [IntPtr]::Zero) ($name+' caption test has an active lease')
+ Check ([NativeIslandLeaseContract]::OldButtonsHidden($handle)) ($name+' original buttons are hidden unavailable offscreen and empty')
+ $before=[NativeIslandLeaseContract]::Geometry($handle)
+ foreach($hit in @(8,9,20)){
+  foreach($message in @(0xa1,0xa2,0xa3)){
+   [void][NativeIslandLeaseContract]::Send($handle,$message,$hit)
+   Check ([NativeIslandLeaseContract]::IsWindow($handle) -and (Owner $handle) -eq $lease -and -not [NativeIslandLeaseContract]::IsIconic($handle) -and -not [NativeIslandLeaseContract]::IsZoomed($handle) -and ($before -join ',') -eq ([NativeIslandLeaseContract]::Geometry($handle) -join ',')) ($name+' old caption hit '+$hit+' message '+$message+' has no action')
+  }
+ }
+}
 function TitlePixel($handle,[string]$name){
+ if($BackgroundOnly){throw 'Background-only checks cannot capture foreground pixels'}
  [void][NativeIslandLeaseContract]::SetForegroundWindow($handle)
  [NativeIslandCaptureBackdrop]::Place($handle)
  Start-Sleep -Milliseconds 700
@@ -74,10 +92,11 @@ function TitlePixel($handle,[string]$name){
 $foreground=[NativeIslandLeaseContract]::GetForegroundWindow()
 $fixture=$null;$worker=$null
 try{
- $fixture=Start-Process -FilePath $fixturePath -ArgumentList '--dark' -WindowStyle Hidden -PassThru
+ $fixtureArguments=if($BackgroundOnly){'--dark --background'}else{'--dark'}
+ $fixture=Start-Process -FilePath $fixturePath -ArgumentList $fixtureArguments -WindowStyle Hidden -PassThru
  Check (Until {[NativeIslandLeaseContract]::Find($fixture.Id) -ne [IntPtr]::Zero}) 'owned fixture starts'
  $h=[NativeIslandLeaseContract]::Find($fixture.Id)
- [void][NativeIslandLeaseContract]::SetWindowPos($h,[IntPtr]::Zero,0,0,0,0,0x57)
+ [void][NativeIslandLeaseContract]::SetWindowPos($h,$(if($BackgroundOnly){[IntPtr](1)}else{[IntPtr]::Zero}),0,0,0,0,$(if($BackgroundOnly){0x53}else{0x57}))
  Check (Until {(Metric $h 5) -gt 0 -and (Metric $h 6) -gt 0}) 'owned fixture is visible and laid out'
  Start-Sleep -Milliseconds 500
  Check ((Owner $h) -eq [IntPtr]::Zero) 'fixture has no preexisting lease'
@@ -94,13 +113,14 @@ try{
   Check (Until {$hostOutput.IsReady -and (Owner $h) -ne [IntPtr]::Zero}) ($scenario+' attached after verification host confirms Session Apply')
   Check ((Metric $h 10) -eq 0) ($scenario+' original presenter caption removed')
   Check ((Metric $h 9) -eq 1) ($scenario+' original content root remains installed')
+  CheckOriginalButtons $h $scenario
   if($scenario -eq 'normal'){
    Send $h 3
    Check (Until {(Metric $h 7) -eq 1}) 'host subtree switches to light without native notifications'
-   Check ((TitlePixel $h 'normal-light') -eq 0xF3F3F3) 'research title follows light theme and background'
+   if(-not $BackgroundOnly){Check ((TitlePixel $h 'normal-light') -eq 0xF3F3F3) 'research title follows light theme and background'}
    Send $h 4
    Check (Until {(Metric $h 7) -eq 2}) 'host subtree switches to dark without native notifications'
-   Check ((TitlePixel $h 'normal-dark') -eq 0x202020) 'research title follows dark theme and background'
+   if(-not $BackgroundOnly){Check ((TitlePixel $h 'normal-dark') -eq 0x202020) 'research title follows dark theme and background'}
   }
   if($scenario -eq 'minimized-owner-process-loss'){
    $viewport=@((Metric $h 5),(Metric $h 6),(Metric $h 13),(Metric $h 14))
@@ -120,7 +140,8 @@ try{
   if($scenario -eq 'minimized-owner-process-loss'){
    Check ([NativeIslandLeaseContract]::IsIconic($h)) 'owner loss leaves the fixture minimized'
    Check (($viewport -join ',') -eq (@((Metric $h 5),(Metric $h 6),(Metric $h 13),(Metric $h 14)) -join ',')) 'minimized rollback preserves original viewport'
-   [void][NativeIslandLeaseContract]::ShowWindow($h,9)
+   [void][NativeIslandLeaseContract]::ShowWindow($h,$(if($BackgroundOnly){4}else{9}))
+   if($BackgroundOnly){[void][NativeIslandLeaseContract]::SetWindowPos($h,[IntPtr](1),0,0,0,0,0x13)}
    Check (Until {-not [NativeIslandLeaseContract]::IsIconic($h) -and ($geometry -join ',') -eq ([NativeIslandLeaseContract]::Geometry($h) -join ',')}) 'restoring minimized fixture recovers original geometry'
   }
   Check (($geometry -join ',') -eq ([NativeIslandLeaseContract]::Geometry($h) -join ',')) ($scenario+' original geometry restored')
@@ -139,6 +160,7 @@ try{
  $worker.StartInfo.RedirectStandardOutput=$true;$worker.StartInfo.RedirectStandardError=$true
  [void]$worker.Start();$hostOutput=[NativeIslandHostOutput]::new($worker.StandardOutput);$stdout=$hostOutput.Completion;$stderr=$worker.StandardError.ReadToEndAsync()
  Check (Until {$hostOutput.IsReady -and (Owner $h) -ne [IntPtr]::Zero}) 'fixture-close attached after verification host confirms Session Apply'
+ CheckOriginalButtons $h 'fixture-close'
  [void][NativeIslandLeaseContract]::Send($h,0x10)
  Check ($fixture.WaitForExit(5000) -and $fixture.ExitCode -eq 0) 'owned fixture exits successfully'
  Check (-not [NativeIslandLeaseContract]::IsWindow($h)) 'owned target HWND is destroyed'
@@ -146,7 +168,7 @@ try{
  $stdout.GetAwaiter().GetResult()|Set-Content -LiteralPath (Join-Path $OutputDirectory 'fixture-close.log') -Encoding utf8
  $stderr.GetAwaiter().GetResult()|Set-Content -LiteralPath (Join-Path $OutputDirectory 'fixture-close.err') -Encoding utf8
  $worker.Dispose();$worker=$null
- [ordered]@{passed=$true;checks=$checks.Count;fixtureHash=(Get-FileHash -LiteralPath $fixturePath).Hash;hostHash=(Get-FileHash -LiteralPath $hostPath).Hash;scope='owned full-client native WinUI fixture and isolated research host only'}|ConvertTo-Json -Depth 5|Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
+ [ordered]@{passed=$true;checks=$checks.Count;backgroundOnly=[bool]$BackgroundOnly;visualChecksPerformed=(-not $BackgroundOnly);skippedChecks=$(if($BackgroundOnly){@('research title follows light theme and background','research title follows dark theme and background')}else{@()});fixtureHash=(Get-FileHash -LiteralPath $fixturePath).Hash;hostHash=(Get-FileHash -LiteralPath $hostPath).Hash;scope='owned full-client native WinUI fixture and isolated verification host only'}|ConvertTo-Json -Depth 5|Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
 }catch{
  ($_|Out-String)+$_.ScriptStackTrace|Set-Content -LiteralPath (Join-Path $OutputDirectory 'failure.txt') -Encoding utf8
  throw
@@ -157,6 +179,6 @@ try{
   $worker.Dispose()
  }
  if($fixture){if(-not $fixture.HasExited){$owned=[NativeIslandLeaseContract]::Find($fixture.Id);if($owned -ne [IntPtr]::Zero -and (Owner $owned) -eq [IntPtr]::Zero){[void][NativeIslandLeaseContract]::Send($owned,0x10);[void]$fixture.WaitForExit(5000)}};$fixture.Dispose()}
- [void][NativeIslandLeaseContract]::SetForegroundWindow($foreground)
+ if(-not $BackgroundOnly){[void][NativeIslandLeaseContract]::SetForegroundWindow($foreground)}
  [NativeIslandCaptureBackdrop]::Close()
 }

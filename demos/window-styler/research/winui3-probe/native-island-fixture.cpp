@@ -513,6 +513,19 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
                     self->TreeGeometry();
                 } else if (wp == 27) {
                     self->body.UpdateLayout();
+                } else if (wp >= 28 && wp <= 31) {
+                    // Isolate the public host operations from title injection.
+                    // Only this owned, currently unattached fixture can use it.
+                    winrt::check_bool(!self->native && self->source && !GetPropW(h, L"Macdows.WindowStyler.Owner.v1"));
+                    if (wp <= 29) {
+                        RECT client{};
+                        winrt::check_bool(GetClientRect(h, &client));
+                        self->source.SiteBridge().MoveAndResize(
+                            {0, wp == 28 ? MulDiv(30, self->dpi, 96) : 0, client.right, client.bottom});
+                    } else {
+                        auto window = w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(h)});
+                        window.Presenter().as<w::OverlappedPresenter>().SetBorderAndTitleBar(true, wp == 31);
+                    }
                 }
                 return 0;
             }
@@ -597,7 +610,10 @@ struct App : x::ApplicationT<App, x::Markup::IXamlMetadataProvider> {
         // caption minimum, without changing non-client geometry or capabilities.
         if (wcsstr(GetCommandLineW(), L"--boundary-sizes"))
             winrt::check_bool(SetWindowSubclass(h, BoundarySize, 0x4e495342, 0));
-        ShowWindow(h, SW_SHOW);
+        const bool background = wcsstr(GetCommandLineW(), L"--background") != nullptr;
+        ShowWindow(h, background ? SW_SHOWNOACTIVATE : SW_SHOW);
+        if (background)
+            SetWindowPos(h, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
     void BuildContent(bool light) {
         document = nullptr;

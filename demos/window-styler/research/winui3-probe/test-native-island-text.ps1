@@ -6,6 +6,7 @@ param(
  [switch]$WithoutInjection,
  [switch]$DetailedGeometry,
  [switch]$NativeViewportCycle,
+ [ValidateSet('none','position','presenter')][string]$NativeFrameCycle='none',
  [switch]$TreeGeometry,
  [switch]$DiagnoseFailure,
  [string]$FailureReader,
@@ -13,6 +14,7 @@ param(
 )
 $ErrorActionPreference='Stop'
 if($NativeViewportCycle -and -not $WithoutInjection){throw 'Viewport diagnostic is only available without injection'}
+if($NativeFrameCycle -ne 'none' -and -not $WithoutInjection){throw 'Native frame diagnostic is only available without injection'}
 if($ReadNativeComposition -and (-not $WithoutInjection -or -not $FailureReader)){throw 'Native composition diagnostic requires WithoutInjection and FailureReader'}
 $fixturePath=Join-Path (Resolve-Path -LiteralPath $FixtureDirectory).Path 'WinUI3NativeIslandFixture.exe'
 $hostPath=Join-Path (Resolve-Path -LiteralPath $HostDirectory).Path 'WinUI3NativeIslandHost.exe'
@@ -266,6 +268,12 @@ try {
   SameState $rollback 'rollback-preserves-editor-state'
   Check (($geometry -join ',') -eq ([NativeIslandText]::Geometry($script:h) -join ',')) 'rollback restores native outer and client geometry'
   if($NativeViewportCycle){Command 25;SameState $rollback 'native viewport round trip preserves editor and floating geometry'}
+  if($NativeFrameCycle -ne 'none'){
+   $frameCommand=if($NativeFrameCycle -eq 'position'){28}else{30}
+   Command $frameCommand;Start-Sleep -Milliseconds 200
+   Command ($frameCommand+1);Start-Sleep -Milliseconds 200
+   SameState $rollback ('native '+$NativeFrameCycle+' round trip preserves editor and geometry')
+  }
   Shot 'native-restored'
   if($nativeControl){
    $reference=SaveState 'native-reference';$nativePixelHashes.Add((Get-FileHash (Join-Path $OutputDirectory ($run+'-native-restored.png'))).Hash)
@@ -295,7 +303,7 @@ try {
   $script:fixture.Dispose();$script:fixture=$null
   }
  }
- [ordered]@{passed=$true;scenario=$Scenario;checks=$checks.Count;withoutInjection=[bool]($WithoutInjection -and -not $ReadNativeComposition);withoutStyleAttachment=[bool]$WithoutInjection;readOnlyDiagnosticBootstrap=[bool]$ReadNativeComposition;nativeControlsPerScenario=3;detailedGeometry=[bool]$DetailedGeometry;treeGeometry=[bool]$TreeGeometry;nativeViewportCycle=[bool]$NativeViewportCycle;fixtureHash=(Get-FileHash $fixturePath).Hash;hostHash=(Get-FileHash $hostPath).Hash;scope='owned standard TextBox; 144 DPI; Unicode SendInput is not IME verification; optional composition getters can materialize visuals'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
+ [ordered]@{passed=$true;scenario=$Scenario;checks=$checks.Count;withoutInjection=[bool]($WithoutInjection -and -not $ReadNativeComposition);withoutStyleAttachment=[bool]$WithoutInjection;readOnlyDiagnosticBootstrap=[bool]$ReadNativeComposition;nativeControlsPerScenario=3;detailedGeometry=[bool]$DetailedGeometry;treeGeometry=[bool]$TreeGeometry;nativeViewportCycle=[bool]$NativeViewportCycle;nativeFrameCycle=$NativeFrameCycle;fixtureHash=(Get-FileHash $fixturePath).Hash;hostHash=(Get-FileHash $hostPath).Hash;scope='owned standard TextBox; 144 DPI; Unicode SendInput is not IME verification; optional composition getters can materialize visuals'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
 } catch {
  ($_|Out-String)+$_.ScriptStackTrace|Set-Content -LiteralPath (Join-Path $OutputDirectory 'failure.txt') -Encoding utf8
  if($script:fixture -and -not $script:fixture.HasExited){try{[void](SaveState 'failure-state')}catch{}}

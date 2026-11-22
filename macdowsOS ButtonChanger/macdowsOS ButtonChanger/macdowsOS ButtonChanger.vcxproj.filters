@@ -628,6 +628,7 @@
     <None Include="../../demos/window-styler/verification-v41.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v42.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v43.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/verification-v44.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/release-v42.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/test-winui3-auto.ps1"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/pe-imports.h"><Filter>框架研究</Filter></None>

@@ -1,7 +1,8 @@
 param(
  [string]$FixtureDirectory=(Join-Path $PSScriptRoot '../../out/framework-probe-x64/winui-native-fixture/Release'),
  [string]$HostDirectory=(Join-Path $PSScriptRoot '../../out/framework-probe-x64/winui-native-research/Release'),
- [string]$OutputDirectory=(Join-Path $PSScriptRoot '../../out/live-v38/native-initialization-Release')
+ [string]$OutputDirectory=(Join-Path $PSScriptRoot '../../out/live-v38/native-initialization-Release'),
+ [switch]$BackgroundOnly
 )
 $ErrorActionPreference='Stop'
 $fixturePath=Join-Path (Resolve-Path -LiteralPath $FixtureDirectory).Path 'WinUI3NativeIslandFixture.exe'
@@ -56,6 +57,7 @@ function Until([scriptblock]$test){
 function Metric([int]$index){[NativeIslandInitialization]::Send($script:h,0x804a,$index)}
 function Owner {[NativeIslandInitialization]::GetProp($script:h,'Macdows.WindowStyler.Owner.v1')}
 function Shot([string]$name){
+ if($BackgroundOnly){throw 'Background-only checks cannot capture foreground pixels'}
  $g=[NativeIslandInitialization]::Geometry($script:h)
  [void][NativeIslandInitialization]::SetForegroundWindow($script:h)
  [NativeIslandCaptureBackdrop]::Place($script:h)
@@ -86,14 +88,15 @@ $script:fixture=$null;$script:worker=$null;$script:h=[IntPtr]::Zero
 try {
  foreach($mode in @(12,14,18,13,17)){
   $name=@{12='root-replacement';13='host-close';14='nested-detach';17='system-close';18='cancel-close'}[$mode]
-  $fixture=Start-Process -FilePath $fixturePath -ArgumentList '--dark' -WindowStyle Hidden -PassThru
+  $fixtureArguments=if($BackgroundOnly){'--dark --background'}else{'--dark'}
+  $fixture=Start-Process -FilePath $fixturePath -ArgumentList $fixtureArguments -WindowStyle Hidden -PassThru
   Check (Until {[NativeIslandInitialization]::Find($fixture.Id) -ne [IntPtr]::Zero}) ($name+' owned fixture starts')
   $h=[NativeIslandInitialization]::Find($fixture.Id)
-  [void][NativeIslandInitialization]::SetWindowPos($h,[IntPtr](-1),160,160,1200,720,0x40)
+  [void][NativeIslandInitialization]::SetWindowPos($h,$(if($BackgroundOnly){[IntPtr](1)}else{[IntPtr](-1)}),160,160,1200,720,$(if($BackgroundOnly){0x50}else{0x40}))
   Check (Until {(Metric 5) -gt 0 -and (Metric 6) -gt 0}) ($name+' fixture is laid out')
   Check ((Owner) -eq [IntPtr]::Zero) ($name+' no preexisting lease')
   $geometry=[NativeIslandInitialization]::Geometry($h);$children=[NativeIslandInitialization]::Children($h)
-  $before=Shot ($name+'-before')
+  if(-not $BackgroundOnly){$before=Shot ($name+'-before')}
   Check (([NativeIslandInitialization]::Send($h,0x8049,$mode)) -eq 0) ($name+' initialization fault armed')
   StartResearch $name
   FinishResearch $(if($mode -in @(13,17,18)){@(0,50)}else{@(50)})
@@ -120,11 +123,11 @@ try {
    if($mode -eq 12){Check ((Metric 11) -eq 1) 'replacement root is not overwritten by aborted initialization'}
    if($mode -eq 14){
     Check ((Metric 46) -eq 0) 'nested detach defers acknowledgement during Apply'
-    Check ($before -eq (Shot ($name+'-restored'))) 'aborted initialization restores whole-window pixels'
+    if(-not $BackgroundOnly){Check ($before -eq (Shot ($name+'-restored'))) 'aborted initialization restores whole-window pixels'}
    }
    if($mode -eq 18){
     Check ((Metric 47) -eq 1) 'host receives exactly one deferred close and cancels it'
-    Check ($before -eq (Shot ($name+'-restored'))) 'cancelled close restores whole-window pixels'
+    if(-not $BackgroundOnly){Check ($before -eq (Shot ($name+'-restored'))) 'cancelled close restores whole-window pixels'}
    }
    StartResearch ($name+'-reattach') 3
    Check (Until {($script:hostOutput.IsReady -and (Owner) -ne [IntPtr]::Zero) -or $worker.HasExited}) ($name+' later attach completes')
@@ -137,14 +140,14 @@ try {
   }
   $fixture.Dispose();$fixture=$null
  }
- [ordered]@{passed=$true;checks=$checks.Count;fixtureHash=(Get-FileHash $fixturePath).Hash;hostHash=(Get-FileHash $hostPath).Hash;scope='owned 144 DPI WinUI initialization callbacks only'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
+ [ordered]@{passed=$true;checks=$checks.Count;backgroundOnly=[bool]$BackgroundOnly;visualChecksPerformed=(-not $BackgroundOnly);skippedChecks=$(if($BackgroundOnly){@('aborted initialization restores whole-window pixels','cancelled close restores whole-window pixels')}else{@()});fixtureHash=(Get-FileHash $fixturePath).Hash;hostHash=(Get-FileHash $hostPath).Hash;scope='owned 144 DPI WinUI initialization callbacks only'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
 }catch{
  ($_|Out-String)+$_.ScriptStackTrace|Set-Content -LiteralPath (Join-Path $OutputDirectory 'failure.txt') -Encoding utf8
  throw
 }finally{
  if($worker){if(-not $worker.HasExited){[void]$worker.WaitForExit(32000)};if($worker.HasExited){$stdout.GetAwaiter().GetResult()|Set-Content -LiteralPath (Join-Path $OutputDirectory ($run+'.log')) -Encoding utf8;$stderr.GetAwaiter().GetResult()|Set-Content -LiteralPath (Join-Path $OutputDirectory ($run+'.err')) -Encoding utf8};$worker.Dispose()}
  if($fixture){if(-not $fixture.HasExited){$owned=[NativeIslandInitialization]::Find($fixture.Id);if($owned -ne [IntPtr]::Zero -and $fixture.Path -eq $fixturePath -and ([NativeIslandInitialization]::GetProp($owned,'Macdows.WindowStyler.Owner.v1')) -eq [IntPtr]::Zero){[void][NativeIslandInitialization]::Send($owned,0x10);[void]$fixture.WaitForExit(5000)}};$fixture.Dispose()}
- [void][NativeIslandInitialization]::SetCursorPos($cursor.x,$cursor.y)
+ if(-not $BackgroundOnly){[void][NativeIslandInitialization]::SetCursorPos($cursor.x,$cursor.y)}
  [NativeIslandCaptureBackdrop]::Close()
- [void][NativeIslandInitialization]::SetForegroundWindow($foreground)
+ if(-not $BackgroundOnly){[void][NativeIslandInitialization]::SetForegroundWindow($foreground)}
 }

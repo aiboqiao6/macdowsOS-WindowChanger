@@ -274,6 +274,7 @@
     <None Include="../../demos/window-styler/verification-v41.md" />
     <None Include="../../demos/window-styler/verification-v42.md" />
     <None Include="../../demos/window-styler/verification-v43.md" />
+    <None Include="../../demos/window-styler/verification-v44.md" />
     <None Include="../../demos/window-styler/release-v42.md" />
     <None Include="../../demos/window-styler/test-winui3-auto.ps1" />
     <None Include="../../demos/window-styler/pe-imports.h" />
