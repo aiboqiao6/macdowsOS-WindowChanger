@@ -6,6 +6,7 @@
 #include "../../winui3-inline.cpp"
 #undef MacdowsAdapterProbeV1
 #undef MacdowsAdapterAttachV1
+#include "tab-source-match.h"
 #include <filesystem>
 #include <fstream>
 
@@ -105,6 +106,8 @@ void ReadInstalledTitle(HWND target) {
                     log << "caption=" << rect.X << ',' << rect.Y << ',' << rect.Width << ',' << rect.Height << '\n';
             }
         }
+        auto tabTitle = styler::research::winui::MatchTabTitle(target, sources);
+        log << "experimentalTabTitleCandidate=" << static_cast<bool>(tabTitle) << '\n';
         // Do not enumerate Content again through the old product matcher: this
         // report has already read each live bridge and its title candidates.
         log << "productLayoutMatcherRun=false\n";

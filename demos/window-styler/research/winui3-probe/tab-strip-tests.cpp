@@ -9,6 +9,7 @@ BOOL WINAPI ShowTabFixture(HWND window, int command);
 #undef ShowWindow
 #include "tab-strip-slot.h"
 #include "tab-caption-guard.h"
+#include "tab-source-match.h"
 #include "../../adapter-api.h"
 #include <winrt/Microsoft.UI.Xaml.Data.h>
 #include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
@@ -21,6 +22,7 @@ BOOL WINAPI ShowTabFixture(HWND window, int command);
 #include <stdexcept>
 
 namespace {
+using styler::research::winui::MatchTabTitle;
 using styler::research::winui::TabCaptionGuard;
 using styler::research::winui::TabStripSlot;
 bool captionTest{}, customClient{}, sourceControl{};
@@ -349,6 +351,46 @@ void Reject(const char *label) {
               fixture.tabs.ReadLocalValue(c::TabView::TabStripHeaderProperty()) == local,
           label);
 }
+void MatchOriginalTabSource() {
+    std::vector<x::Hosting::DesktopWindowXamlSource> sources{fixture.app->source};
+    sources.insert(sources.end(), fixture.sources.begin(), fixture.sources.end());
+    const auto match = MatchTabTitle(fixture.app->hwnd, sources);
+    Check(static_cast<bool>(match) == customClient,
+          "tab-title selection requires a native top-client layout, not an ordinary caption");
+    if (!customClient)
+        return;
+    Check(match.source == fixture.app->source && match.tabs == fixture.tabs,
+          "read-only structural selection finds the original tab island among five sources");
+    std::reverse(sources.begin(), sources.end());
+    const auto reversed = MatchTabTitle(fixture.app->hwnd, sources);
+    Check(reversed.source == match.source && reversed.tabs == match.tabs,
+          "tab-title selection is independent of runtime source enumeration order");
+    sources.push_back(fixture.app->source);
+    Check(!MatchTabTitle(fixture.app->hwnd, sources), "duplicate island enumeration refuses ambiguous ownership");
+    sources.pop_back();
+    Check(!MatchTabTitle(fixture.edit, sources), "a native document child cannot match its parent's tab source");
+    const auto local = fixture.tabs.ReadLocalValue(c::TabView::TabStripHeaderProperty());
+    fixture.tabs.TabStripHeader(c::Border());
+    Check(!MatchTabTitle(fixture.app->hwnd, sources), "a host-owned tab header refuses structural selection");
+    fixture.tabs.ClearValue(c::TabView::TabStripHeaderProperty());
+    Check(fixture.tabs.ReadLocalValue(c::TabView::TabStripHeaderProperty()) == local,
+          "selection checks preserve the original unset header value");
+    const auto flow = fixture.tabs.FlowDirection();
+    fixture.tabs.FlowDirection(x::FlowDirection::RightToLeft);
+    Check(!MatchTabTitle(fixture.app->hwnd, sources), "unverified RTL tab layout refuses structural selection");
+    fixture.tabs.FlowDirection(flow);
+    StableContent();
+}
+void MatchRecreatedTabSource(bool closed) {
+    std::vector<x::Hosting::DesktopWindowXamlSource> sources{fixture.app->source, retiredSource};
+    sources.insert(sources.end(), fixture.sources.begin(), fixture.sources.end());
+    const auto match = MatchTabTitle(fixture.app->hwnd, sources);
+    if (closed)
+        Check(!match, "a closed tab source cannot remain a selectable title island");
+    else
+        Check(match.source == fixture.app->source && match.tabs == fixture.tabs,
+              "selection finds the host's recreated tab source while the retired source stays closed");
+}
 void Invoke(c::Button const &button) {
     x::Automation::Peers::ButtonAutomationPeer peer(button);
     peer.GetPattern(x::Automation::Peers::PatternInterface::Invoke)
@@ -381,6 +423,8 @@ void ReadOnlyTitle() {
     Check(output.find("guardedSources=5") != std::string::npos &&
               output.find("scanCompleted=true") != std::string::npos,
           "guarded diagnostic enumeration reads all five owned islands and completes");
+    Check(output.find(std::string("experimentalTabTitleCandidate=") + (customClient ? "1" : "0")) != std::string::npos,
+          "the built read-only module runs structural selection on the real guarded source enumeration");
     Check(output.find("tabHeaderEmpty=1 tabHeaderLocalUnset=1 tabHeaderBound=0 tabHeaderTemplate=0 tabFlow=0") !=
                   std::string::npos &&
               output.find("tabCount=2") != std::string::npos,
@@ -473,6 +517,7 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
             SendMessageW(fixture.edit, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L" edited"));
             StableContent();
             if (!sourceControl) {
+                MatchOriginalTabSource();
                 ReadOnlyTitle();
                 RejectOtherWindow();
             }
@@ -685,6 +730,7 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
                       << " tabs=" << fixture.tabLoads << ',' << fixture.tabUnloads << '\n';
             captionGuard.reset();
             slot.reset();
+            MatchRecreatedTabSource(true);
             stage = 60;
         } else if (stage == 57) {
             if (fixture.rootLoads < 2 || fixture.tabLoads < 4) {
@@ -693,6 +739,7 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
             }
             Check(retiredSource && retiredBridge.IsClosed(),
                   "the host keeps the closed source alongside its newly loaded tab island");
+            MatchRecreatedTabSource(false);
             std::cout << "tab-reload-events root=" << fixture.rootLoads << ',' << fixture.rootUnloads
                       << " tabs=" << fixture.tabLoads << ',' << fixture.tabUnloads << '\n';
             Check(fixture.rootLoads == 2 && fixture.rootUnloads == 1 && fixture.tabLoads == 6 &&

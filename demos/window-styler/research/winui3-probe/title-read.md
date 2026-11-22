@@ -18,6 +18,8 @@
 
 最终只读模块修订 `d48540a20979` 的 x64 Release、Debug 均构建成功，并分别读取以上两个实际窗口，四次主机退出码均为 0；没有留下会话、改变原 style 或几何。最终记录在 `out/live-v35/installed-titles-final-Release`、`installed-titles-final-Debug`。
 
+2026-11-23 新增只读的顶部 TabView 源结构选择，诊断输出 `experimentalTabTitleCandidate`。选择器检查 GUI 线程、客户区/岛屿边界、空公共插槽、LTR、144 DPI 和唯一候选，不依赖软件或控件名称。Debug/Release 自有五岛屿的实际 guarded Roots 读取、关闭源排除、重建源重新选择和原状态保持已验证；新代码尚未读取实际记事本，不代表该应用已适配，也不启用正式 Attach。见 [v48](../../verification-v48.md)。
+
 ## 已撤回的原生标题实验
 
 在自建空白画图窗口中，精确匹配运行时并要求唯一、完整覆盖客户区的岛屿后，限时复用原生标题渲染仍失败：外框、客户区及客户区原点查询完全不变，原按钮查询也变为隐藏禁用，但实际工具栏上移，三灯像素为 0，原客户区截图 hash 改变。通过公共 SiteBridge 重申原矩形的第二轮也未修复。
