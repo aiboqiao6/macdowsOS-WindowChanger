@@ -69,3 +69,17 @@ Release 正式注册表主机的完整边界组 107 项通过，包括最小宽�
 首轮前台流程已结束，自有 WindowStyler、StyleTarget、ControllerLifecycleTests、WinUI3NativeIslandFixture 和 WinUI3NativeIslandHost 进程均已退出，未发现残留测试进程。该结果不是全机所有后台进程的审计。
 
 私有证据保留在忽略的 out/live-v43/elevated-package-r7、package-winui-auto-r8、boundaries-Release-r9、text-Release-r10、text-native-Release-r11、text-native-viewport-Release-r12。候选包没有覆盖或重新打包；本轮尚未完成实际软件、完整双配置/双主题文本、根/源重建、画图文档和多岛屿前台矩阵。生产源码没有因像素失败而改变，也没有调整验收容差。
+
+## 文本复测与诊断边界（2026-11-22）
+
+用户继续后，沿用自有窗口与原输入/截图保护，未使用 computer use 或子代理。`r14` 深色正常恢复场景启用 DetailedGeometry，通过 224 项，目标最终整图与三个原生对照均为 `60D1D5EF3C2B86CA8ADB5BF4DEC17511FDB2A60C2C9AA99E9F74E3BE14610BE6`。DetailedGeometry 会读取 TextBox 相对原根的变换和精确尺寸，不能把这组结果当作完全没有诊断读取的验收，也不能认定 getter 修复了渲染。
+
+随后 `r15` 关闭 DetailedGeometry、TreeGeometry 和 NativeViewportCycle，深色正常恢复仍通过全部 224 项及整图比较。两轮虽然指定了 DiagnoseFailure，但均没有失败，因此失败后的等待、UpdateLayout、变换读取、viewport 往返和树读取分支实际未执行；不能将这些未执行操作作为修复证据。生产源码和运行时 b6ad8edbc843 始终未改，原 r10 的 3 像素失败仍保留，目前只能确认复测结果有波动，原因未确定。
+
+`r16` 接着分别首次执行本轮剩余的深色异常、浅色正常、浅色异常三个场景，均为原路径、各 224 项通过。与 r15 的深色正常场景合并，Release 四场景合计 896 项；这是四次独立调用的完整场景结果，三组原生参考均在各目标附加前生成，不使用失败后补采参考。各场景的 fixture 和正式 Host SHA256 相同，没有裁剪、遮罩、像素容差或额外诊断引导。原文本、选区、历史、焦点、Loaded/Unloaded、真实三灯最大化/还原、宿主主题切换、正常及异常恢复、完整最终 PNG 比较和恢复后 Ctrl+Z/Ctrl+Y 均通过。它不替代当前修订的 Debug 矩阵、IME 或实际软件验证，不追认 r10 通过。
+
+根/源重建组 `r18` 在深色 root 和 source 阶段检查通过后，于 dark-gap-control 写检查 JSON 时被并发读取短暂占用，验证器 Set-Content 失败并清理退出。该并发读取来自本次进度监测，不是适配器或宿主崩溃；原中断日志保留，整组不计通过。后续验证不再读取运行中的 JSON，待子进程退出后读取结果，再按新证据目录补跑完整重建组。
+
+`r19` 按上述监测方式完整重跑 Release 重建矩阵，共 832 项通过：深浅色各包含 root/source/gap 三种宿主变化，且每种先运行未注入原生对照，再运行实际正式适配器。每主题 root 和 source 的目标各 83 项、原生对照各 55 项，gap 目标 84 项、原生对照 56 项。覆盖宿主替换或重建后的旧会话撤销、旧/新控件生命周期、新文档和历史保持、原生标题及岛屿几何恢复、同一 HWND 再次接管、真实绿灯最大化/还原、Ctrl+Z/Ctrl+Y，以及后续正常/异常恢复；重建后和最终完整 PNG 严格匹配对应独立原生对照。实际正式 Host 和 fixture 的 SHA256 与上述文本矩阵一致，测试 Host 明确使用 Automatic 并确认 Adapter288。
+
+本轮原路径 Release 文本 896 项与重建 832 项合计 1,728 项通过；额外 DetailedGeometry 诊断的 224 项不重复算入该合计。结束时确认相关 fixture、验证 Host、测试控制器及生命周期测试进程均不存在，恢复前台和鼠标位置后不再运行输入。原 r10 像素失败和 r18 验证器中断未覆盖或改判。生产源码、运行时和候选 ZIP 均没有因复测改变；尚不能宣称像素问题修复、Debug/实际画图/多岛屿前台矩阵完成或全机软件适配完成。私有原始证据在 out/live-v43/text-failure-Release-r14、text-failure-plain-Release-r15、text-*-Release-r16、rebuild-Release-r18、rebuild-Release-r19，汇总为 text-four-scenarios-Release-r16.json、rebuild-scenarios-r19.json 和 cleanup-r19.json。
