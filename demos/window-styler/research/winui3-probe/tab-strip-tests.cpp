@@ -23,7 +23,7 @@ BOOL WINAPI ShowTabFixture(HWND window, int command);
 namespace {
 using styler::research::winui::TabCaptionGuard;
 using styler::research::winui::TabStripSlot;
-bool captionTest{}, customClient{};
+bool captionTest{}, customClient{}, sourceControl{};
 struct Fixture {
     App *app{};
     HWND edit{};
@@ -39,7 +39,10 @@ struct Fixture {
     void Layout() {
         RECT r{};
         winrt::check_bool(GetClientRect(app->hwnd, &r));
-        app->source.SiteBridge().MoveAndResize({tabOffset, 14, std::max(340L, r.right - 240), 50});
+        // The owned host can close its tab source while the other islands stay
+        // alive. A reentrant WM_SIZE must not query that closed source.
+        if (app->source)
+            app->source.SiteBridge().MoveAndResize({tabOffset, 14, std::max(340L, r.right - 240), 50});
         sources[0].SiteBridge().MoveAndResize({0, 64, r.right, 50});
         sources[1].SiteBridge().MoveAndResize({0, r.bottom - 48, r.right, 48});
         sources[2].SiteBridge().MoveAndResize({r.right - 24, 114, 24, r.bottom - 186});
@@ -168,13 +171,15 @@ winrt::Windows::Foundation::IInspectable selected{nullptr};
 c::Border replacement{nullptr};
 c::Button retained{nullptr};
 std::shared_ptr<TabStripSlot::Commands> retiredCommands;
+x::Hosting::DesktopWindowXamlSource retiredSource{nullptr};
+winrt::Microsoft::UI::Content::DesktopChildSiteBridge retiredBridge{nullptr};
 RECT originalOuter{};
 LONG_PTR originalStyle{};
 struct Raster {
     int32_t width{}, height{};
     std::vector<uint8_t> pixels;
     bool operator==(Raster const &) const = default;
-} captured, baseline, stableRaster;
+} captured, baseline, stableRaster, recreatedBaseline;
 winrt::Windows::Foundation::IAsyncAction capture{nullptr};
 ULONGLONG rasterStableSince{};
 unsigned rasterSamples{};
@@ -206,8 +211,8 @@ void SaveRaster(Raster const &raster, const wchar_t *label) {
         throw std::runtime_error("cannot save owned raster evidence");
     std::cout << "tab-raster-file=" << winrt::to_string(file.wstring()) << '\n';
 }
-void RasterDifference() {
-    if (captured.width != baseline.width || captured.height != baseline.height) {
+void RasterDifference(Raster const &reference = baseline) {
+    if (captured.width != reference.width || captured.height != reference.height) {
         std::cout << "tab-raster-diff=different-dimensions\n";
         return;
     }
@@ -216,7 +221,7 @@ void RasterDifference() {
     for (int y = 0; y < captured.height; ++y)
         for (int x = 0; x < captured.width; ++x) {
             auto offset = (size_t(y) * captured.width + x) * 4;
-            if (memcmp(captured.pixels.data() + offset, baseline.pixels.data() + offset, 4)) {
+            if (memcmp(captured.pixels.data() + offset, reference.pixels.data() + offset, 4)) {
                 ++count;
                 left = std::min(left, x);
                 top = std::min(top, y);
@@ -285,6 +290,8 @@ void Finish(bool success) {
     replacement = nullptr;
     retained = nullptr;
     retiredCommands.reset();
+    retiredSource = nullptr;
+    retiredBridge = nullptr;
     stage = success ? 100 : 999;
     if (fixture.app)
         PostMessageW(fixture.app->hwnd, WM_CLOSE, 0, 0);
@@ -403,7 +410,7 @@ void RejectOtherWindow() {
 auto Pointer() {
     return input::InputNonClientPointerSource::GetForWindowId({reinterpret_cast<uint64_t>(fixture.app->hwnd)});
 }
-void CheckCaptionRestored() {
+void CheckCaptionRestored(bool originalLifecycle = true) {
     auto window = w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(fixture.app->hwnd)});
     Check(window.Presenter().as<w::OverlappedPresenter>().HasTitleBar(),
           "the actual presenter restores its native title");
@@ -415,7 +422,8 @@ void CheckCaptionRestored() {
     Check(!GetWindowSubclass(fixture.app->hwnd, TabCaptionGuard::Filter, TabCaptionGuard::Subclass, &data),
           "undo removes the native-button input filter");
     Check(captionGuard->Geometry() == captionGeometry, "outer, client and screen-origin geometry are restored exactly");
-    StableContent();
+    if (originalLifecycle)
+        StableContent();
 }
 void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
     if (checking)
@@ -424,6 +432,20 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
     try {
         if (GetTickCount64() - started > 20000)
             throw std::runtime_error("background tab slot test timed out");
+        if (stage == 60) {
+            // Bridge closure is synchronous; Unloaded is dispatched later.
+            if (fixture.rootUnloads != 1 || fixture.tabUnloads != 2) {
+                checking = false;
+                return;
+            }
+            Check(fixture.rootLoads == 1 && fixture.tabLoads == 2,
+                  "only the host's explicit tab-source close unloads the original root and tabs once");
+            fixture.app->source = x::Hosting::DesktopWindowXamlSource();
+            fixture.app->source.Initialize({reinterpret_cast<uint64_t>(fixture.app->hwnd)});
+            fixture.app->source.Content(fixture.app->body);
+            fixture.Layout();
+            stage = 57;
+        }
         if (!fixture.app || !fixture.tabs.IsLoaded() || !fixture.items[1].IsLoaded()) {
             checking = false;
             return;
@@ -450,8 +472,10 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
             SendMessageW(fixture.edit, EM_SETSEL, end, end);
             SendMessageW(fixture.edit, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L" edited"));
             StableContent();
-            ReadOnlyTitle();
-            RejectOtherWindow();
+            if (!sourceControl) {
+                ReadOnlyTitle();
+                RejectOtherWindow();
+            }
             stage = 30;
             rasterSamples = 0;
             capture = CaptureTab(L"original");
@@ -461,9 +485,13 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
                   "framework rendering exports the complete nonempty original tab island");
             baseline = captured;
             SaveRaster(baseline, L"original-stable");
-            slot = std::make_unique<TabStripSlot>(fixture.app->hwnd, tabs);
-            slot->Apply();
-            stage = captionTest ? 50 : 1;
+            if (sourceControl)
+                stage = 56;
+            else {
+                slot = std::make_unique<TabStripSlot>(fixture.app->hwnd, tabs);
+                slot->Apply();
+                stage = captionTest ? 50 : 1;
+            }
         } else if (stage == 50 && slot->Ready()) {
             captionGuard = std::make_unique<TabCaptionGuard>(fixture.app->hwnd, *slot);
             captionGeometry = captionGuard->Geometry();
@@ -625,8 +653,107 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
                   "a host which shifts its client when the title hides is rejected and rolled back");
             slot->Restore();
             CheckCaptionRestored();
+            captionGuard.reset();
+            slot = std::make_unique<TabStripSlot>(fixture.app->hwnd, tabs);
+            slot->Apply();
+            stage = 56;
+        } else if (stage == 56 && (sourceControl || slot->Ready())) {
+            if (!sourceControl) {
+                captionGuard = std::make_unique<TabCaptionGuard>(fixture.app->hwnd, *slot);
+                captionGuard->Apply(fixture.app->source);
+                Check(captionGuard->Refresh(), "the owned multi-island caption is ready before its source closes");
+                retiredCommands = slot->commands;
+            }
+            retiredSource = fixture.app->source;
+            retiredBridge = retiredSource.SiteBridge();
+            const auto oldIsland = reinterpret_cast<HWND>(retiredBridge.WindowId().Value);
+            fixture.app->source = nullptr;
+            retiredSource.Close();
+            Check(retiredBridge.IsClosed() && !IsWindow(oldIsland),
+                  "the owned host closes its tab island while retaining the old source object");
+            if (!sourceControl) {
+                Check(!captionGuard->Refresh() && !captionGuard->active,
+                      "a closed retained bridge revokes caption ownership before reading unloaded slot state");
+                slot->Restore();
+                CheckCaptionRestored(false);
+                Check(!retiredCommands->Execute(0) && !retiredCommands->Execute(1) && !retiredCommands->Execute(2),
+                      "commands retained from the closed tab island cannot post system actions");
+            }
+            Check(tabs.ReadLocalValue(c::TabView::TabStripHeaderProperty()) == x::DependencyProperty::UnsetValue(),
+                  "the unloaded TabView's original unset header value is restored");
+            std::cout << "tab-close-events root=" << fixture.rootLoads << ',' << fixture.rootUnloads
+                      << " tabs=" << fixture.tabLoads << ',' << fixture.tabUnloads << '\n';
+            captionGuard.reset();
+            slot.reset();
+            stage = 60;
+        } else if (stage == 57) {
+            if (fixture.rootLoads < 2 || fixture.tabLoads < 4) {
+                checking = false;
+                return;
+            }
+            Check(retiredSource && retiredBridge.IsClosed(),
+                  "the host keeps the closed source alongside its newly loaded tab island");
+            std::cout << "tab-reload-events root=" << fixture.rootLoads << ',' << fixture.rootUnloads
+                      << " tabs=" << fixture.tabLoads << ',' << fixture.tabUnloads << '\n';
+            Check(fixture.rootLoads == 2 && fixture.rootUnloads == 1 && fixture.tabLoads == 6 &&
+                      fixture.tabUnloads == 4,
+                  "tab-source recreation matches the independent native control's exact lifecycle counts");
+            Check(fixture.app->source.Content() == originalRoots[0] && tabs.SelectedItem() == selected &&
+                      tabs.TabItems().GetAt(0) == fixture.items[0] && tabs.TabItems().GetAt(1) == fixture.items[1],
+                  "source recreation keeps the host's original root selected tab and tab objects");
+            const auto geometry = Geometry();
+            Check(memcmp(geometry.data(), before.data(), sizeof(before)) == 0,
+                  "the rebuilt tab source and four surviving islands retain their original geometry");
+            for (unsigned i = 0; i != fixture.sources.size(); ++i)
+                Check(fixture.sources[i].Content() == originalRoots[i + 1],
+                      "a tab-source close never replaces the other island roots");
+            if (sourceControl) {
+                stage = 58;
+                rasterSamples = 0;
+                capture = CaptureTab(L"native-source-recreated");
+            } else {
+                stage = 62;
+                rasterSamples = 0;
+                capture = CaptureTab(L"source-recreated-before-reattach");
+            }
+        } else if (stage == 62 && CaptureReady() && RasterStable(L"source-recreated-before-reattach")) {
+            // The host changed XamlRoot. Record the old/new native raster
+            // difference separately; the no-injection control also exhibits it.
+            RasterDifference();
+            Check(captured.width == baseline.width && captured.height == baseline.height,
+                  "the host-recreated source retains the complete original tab raster dimensions");
+            recreatedBaseline = captured;
+            SaveRaster(recreatedBaseline, L"source-recreated-stable-before-reattach");
+            slot = std::make_unique<TabStripSlot>(fixture.app->hwnd, tabs);
+            slot->Apply();
+            captionGuard = std::make_unique<TabCaptionGuard>(fixture.app->hwnd, *slot);
+            stage = 59;
+        } else if (stage == 59 && slot->Ready()) {
+            captionGuard->Apply(fixture.app->source);
+            Check(captionGuard->Refresh() && !captionGuard->presenter.HasTitleBar(),
+                  "a new caption transaction can attach to the recreated source while the old one stays closed");
+            captionGuard->Restore();
+            slot->Restore();
+            CheckCaptionRestored(false);
+            stage = 58;
+            rasterSamples = 0;
+            capture = CaptureTab(L"caption-source-recreated");
+        } else if (stage == 58 && CaptureReady() && RasterStable(L"caption-source-recreated")) {
+            if (sourceControl) {
+                RasterDifference();
+                Check(captured.width == baseline.width && captured.height == baseline.height,
+                      "native source recreation preserves the complete tab raster dimensions");
+            } else {
+                RasterDifference(recreatedBaseline);
+                Check(captured == recreatedBaseline,
+                      "second caption undo restores every byte of the current source's pre-attachment bitmap");
+            }
+            Check(GetWindowLongPtrW(fixture.app->hwnd, GWL_STYLE) == originalStyle,
+                  "closing and recreating the tab source preserves the original native window style");
+            Check(GetForegroundWindow() != fixture.app->hwnd,
+                  "the entire tab-source lifecycle completes without foreground activation");
             Check(SendMessageW(fixture.edit, EM_UNDO, 0, 0) != 0,
-                  "the native document undo survives all caption transactions");
+                  "the native document undo survives the entire source lifecycle");
             wchar_t text[128]{};
             GetWindowTextW(fixture.edit, text, 128);
             Check(wcscmp(text, L"Owned original document") == 0,
@@ -821,8 +948,10 @@ BOOL WINAPI ShowTabFixture(HWND window, int command) {
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR command, int show) {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     std::cout << std::unitbuf;
-    captionTest = wcsstr(GetCommandLineW(), L"--caption-guard") != nullptr;
-    customClient = wcsstr(GetCommandLineW(), L"--custom-client") != nullptr;
+    sourceControl = wcsstr(GetCommandLineW(), L"--source-control") != nullptr;
+    std::cout << "native-source-control=" << sourceControl << '\n';
+    captionTest = sourceControl || wcsstr(GetCommandLineW(), L"--caption-guard") != nullptr;
+    customClient = sourceControl || wcsstr(GetCommandLineW(), L"--custom-client") != nullptr;
     started = GetTickCount64();
     timer = SetTimer(nullptr, 0, 60, Tick);
     if (!timer)

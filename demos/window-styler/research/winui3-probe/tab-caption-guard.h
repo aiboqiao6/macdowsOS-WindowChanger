@@ -201,8 +201,8 @@ struct TabCaptionGuard {
         Operation operation(*this);
         bool valid{};
         try {
-            valid = !invalid && slot.Ready() && !presenter.HasTitleBar() && presenter.HasBorder() &&
-                    Same(GroupRect(), protectedRect) &&
+            valid = !invalid && bridge && !bridge.IsClosed() && slot.Ready() && !presenter.HasTitleBar() &&
+                    presenter.HasBorder() && Same(GroupRect(), protectedRect) &&
                     Same(Read(pointer, input::NonClientRegionKind::Caption), appliedCaption) &&
                     Same(Read(pointer, input::NonClientRegionKind::Passthrough), appliedPass);
         } catch (...) {

@@ -246,7 +246,11 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8)
         foreach(theme dark light)
             add_test(NAME winui3_tab_strip_${theme} COMMAND WinUI3TabStripTests --text-editor --${theme})
             set_tests_properties(winui3_tab_strip_${theme} PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
+            add_test(NAME winui3_tab_source_control_${theme} COMMAND WinUI3TabStripTests --text-editor --${theme} --source-control)
+            set_tests_properties(winui3_tab_source_control_${theme}
+                PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE FIXTURES_SETUP winui3_tab_source_${theme})
             add_test(NAME winui3_tab_caption_${theme} COMMAND WinUI3TabStripTests --text-editor --${theme} --caption-guard --custom-client)
+            set_tests_properties(winui3_tab_caption_${theme} PROPERTIES FIXTURES_REQUIRED winui3_tab_source_${theme})
             add_test(NAME winui3_tab_caption_reject_${theme} COMMAND WinUI3TabStripTests --text-editor --${theme} --caption-guard)
             set_tests_properties(winui3_tab_caption_${theme} winui3_tab_caption_reject_${theme}
                 PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
