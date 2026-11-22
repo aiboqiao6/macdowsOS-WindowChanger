@@ -255,6 +255,7 @@
     <None Include="../../demos/window-styler/research/winui3-probe/native-island-fixture.cpp" />
     <None Include="../../demos/window-styler/research/winui3-probe/native-island-closed-title.cpp" />
     <None Include="../../demos/window-styler/research/winui3-probe/tab-strip-slot.h" />
+    <None Include="../../demos/window-styler/research/winui3-probe/tab-caption-guard.h" />
     <None Include="../../demos/window-styler/research/winui3-probe/tab-strip-tests.cpp" />
     <None Include="../../demos/window-styler/research/winui3-probe/native-island-frame.h" />
     <None Include="../../demos/window-styler/research/winui3-probe/native-island.cpp" />
@@ -272,6 +273,7 @@
     <None Include="../../demos/window-styler/verification-v40.md" />
     <None Include="../../demos/window-styler/verification-v41.md" />
     <None Include="../../demos/window-styler/verification-v42.md" />
+    <None Include="../../demos/window-styler/verification-v43.md" />
     <None Include="../../demos/window-styler/release-v42.md" />
     <None Include="../../demos/window-styler/test-winui3-auto.ps1" />
     <None Include="../../demos/window-styler/pe-imports.h" />

@@ -609,6 +609,7 @@
     <None Include="../../demos/window-styler/research/winui3-probe/native-island-fixture.cpp"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/research/winui3-probe/native-island-closed-title.cpp"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/research/winui3-probe/tab-strip-slot.h"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/winui3-probe/tab-caption-guard.h"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/research/winui3-probe/tab-strip-tests.cpp"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/research/winui3-probe/native-island-frame.h"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/research/winui3-probe/native-island.cpp"><Filter>框架研究</Filter></None>
@@ -626,6 +627,7 @@
     <None Include="../../demos/window-styler/verification-v40.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v41.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v42.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/verification-v43.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/release-v42.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/test-winui3-auto.ps1"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/pe-imports.h"><Filter>框架研究</Filter></None>

@@ -8,6 +8,7 @@ BOOL WINAPI ShowTabFixture(HWND window, int command);
 #undef wWinMain
 #undef ShowWindow
 #include "tab-strip-slot.h"
+#include "tab-caption-guard.h"
 #include "../../adapter-api.h"
 #include <winrt/Microsoft.UI.Xaml.Data.h>
 #include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
@@ -20,7 +21,9 @@ BOOL WINAPI ShowTabFixture(HWND window, int command);
 #include <stdexcept>
 
 namespace {
+using styler::research::winui::TabCaptionGuard;
 using styler::research::winui::TabStripSlot;
+bool captionTest{}, customClient{};
 struct Fixture {
     App *app{};
     HWND edit{};
@@ -30,10 +33,13 @@ struct Fixture {
     std::array<x::FrameworkElement, 4> roots{nullptr, nullptr, nullptr, nullptr};
     unsigned tabLoads{}, tabUnloads{}, rootLoads{}, rootUnloads{};
     std::vector<UINT> commands;
+    unsigned oldCaptionMessages{};
+    LONG tabOffset{60};
+    bool reflowWhenHidden{};
     void Layout() {
         RECT r{};
         winrt::check_bool(GetClientRect(app->hwnd, &r));
-        app->source.SiteBridge().MoveAndResize({60, 14, std::max(340L, r.right - 240), 50});
+        app->source.SiteBridge().MoveAndResize({tabOffset, 14, std::max(340L, r.right - 240), 50});
         sources[0].SiteBridge().MoveAndResize({0, 64, r.right, 50});
         sources[1].SiteBridge().MoveAndResize({0, r.bottom - 48, r.right, 48});
         sources[2].SiteBridge().MoveAndResize({r.right - 24, 114, 24, r.bottom - 186});
@@ -50,6 +56,24 @@ struct Fixture {
     static LRESULT CALLBACK Window(HWND h, UINT m, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR data) {
         auto self = reinterpret_cast<Fixture *>(data);
         try {
+            if (customClient && m == WM_NCCALCSIZE && lp) {
+                auto rect = wp ? &reinterpret_cast<NCCALCSIZE_PARAMS *>(lp)->rgrc[0] : reinterpret_cast<RECT *>(lp);
+                const auto originalTop = rect->top;
+                DefSubclassProc(h, m, wp, lp);
+                rect->top = originalTop;
+                if (self->reflowWhenHidden) {
+                    self->reflowWhenHidden = false;
+                    ++rect->top; // One-shot incompatible owned-host layout; rollback uses the normal host path.
+                }
+                return 0;
+            }
+            if (m == WM_NCHITTEST && lp == -1)
+                return static_cast<LRESULT>(wp); // Explicit synthetic stale-hit contract only.
+            if ((wp == HTCLOSE || wp == HTMINBUTTON || wp == HTMAXBUTTON) &&
+                (m == WM_NCLBUTTONDOWN || m == WM_NCLBUTTONUP || m == WM_NCLBUTTONDBLCLK)) {
+                ++self->oldCaptionMessages;
+                return 0;
+            }
             if (m == WM_SYSCOMMAND) {
                 auto command = static_cast<UINT>(wp & 0xfff0);
                 if (command == SC_CLOSE || command == SC_MINIMIZE || command == SC_MAXIMIZE || command == SC_RESTORE) {
@@ -135,6 +159,9 @@ ULONGLONG started{};
 unsigned stage{}, checks{};
 bool checking{};
 std::unique_ptr<TabStripSlot> slot;
+std::unique_ptr<TabCaptionGuard> captionGuard;
+std::vector<RectInt32> seedCaption, seedPass;
+std::array<LONG, 10> captionGeometry{};
 std::array<RECT, 6> before{};
 std::array<x::UIElement, 5> originalRoots{nullptr, nullptr, nullptr, nullptr, nullptr};
 winrt::Windows::Foundation::IInspectable selected{nullptr};
@@ -251,6 +278,7 @@ void Finish(bool success) {
         capture.Cancel();
         capture = nullptr;
     }
+    captionGuard.reset();
     slot.reset();
     originalRoots = {nullptr, nullptr, nullptr, nullptr, nullptr};
     selected = nullptr;
@@ -291,8 +319,13 @@ void StableContent() {
     GetWindowTextW(fixture.edit, text, 128);
     Check(wcscmp(text, L"Owned original document edited") == 0, "native document text stays intact");
     Check(SendMessageW(fixture.edit, EM_CANUNDO, 0, 0) != 0, "native document undo history stays intact");
-    Check(GetWindowLongPtrW(fixture.app->hwnd, GWL_STYLE) == originalStyle,
-          "slot-only research does not change the native caption or its buttons");
+    auto style = GetWindowLongPtrW(fixture.app->hwnd, GWL_STYLE);
+    if (captionGuard && captionGuard->active)
+        Check((style & (WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME)) ==
+                  (originalStyle & (WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME)),
+              "hidden native title retains the original window capabilities and resize border");
+    else
+        Check(style == originalStyle, "the original native caption style is unchanged or fully restored");
     Check(GetForegroundWindow() != fixture.app->hwnd, "the owned fixture needs no foreground activation");
 }
 void Reject(const char *label) {
@@ -367,6 +400,23 @@ void RejectOtherWindow() {
     Check(error == E_NOTIMPL && !fixture.tabs.TabStripHeader(),
           "a TabView owned by another HWND cannot control the requested target");
 }
+auto Pointer() {
+    return input::InputNonClientPointerSource::GetForWindowId({reinterpret_cast<uint64_t>(fixture.app->hwnd)});
+}
+void CheckCaptionRestored() {
+    auto window = w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(fixture.app->hwnd)});
+    Check(window.Presenter().as<w::OverlappedPresenter>().HasTitleBar(),
+          "the actual presenter restores its native title");
+    Check(
+        TabCaptionGuard::Same(TabCaptionGuard::Read(Pointer(), input::NonClientRegionKind::Caption), seedCaption) &&
+            TabCaptionGuard::Same(TabCaptionGuard::Read(Pointer(), input::NonClientRegionKind::Passthrough), seedPass),
+        "undo restores the exact original caption and passthrough rectangle lists");
+    DWORD_PTR data{};
+    Check(!GetWindowSubclass(fixture.app->hwnd, TabCaptionGuard::Filter, TabCaptionGuard::Subclass, &data),
+          "undo removes the native-button input filter");
+    Check(captionGuard->Geometry() == captionGeometry, "outer, client and screen-origin geometry are restored exactly");
+    StableContent();
+}
 void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
     if (checking)
         return;
@@ -389,6 +439,12 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
                 originalRoots[i + 1] = fixture.sources[i].Content();
             selected = tabs.SelectedItem();
             originalStyle = GetWindowLongPtrW(fixture.app->hwnd, GWL_STYLE);
+            if (captionTest) {
+                seedCaption = {{0, 0, 900, 64}, {0, 80, 120, 20}};
+                seedPass = {{800, 10, 20, 20}};
+                TabCaptionGuard::Write(Pointer(), input::NonClientRegionKind::Caption, seedCaption);
+                TabCaptionGuard::Write(Pointer(), input::NonClientRegionKind::Passthrough, seedPass);
+            }
             winrt::check_bool(GetWindowRect(fixture.app->hwnd, &originalOuter));
             auto end = GetWindowTextLengthW(fixture.edit);
             SendMessageW(fixture.edit, EM_SETSEL, end, end);
@@ -407,7 +463,175 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
             SaveRaster(baseline, L"original-stable");
             slot = std::make_unique<TabStripSlot>(fixture.app->hwnd, tabs);
             slot->Apply();
-            stage = 1;
+            stage = captionTest ? 50 : 1;
+        } else if (stage == 50 && slot->Ready()) {
+            captionGuard = std::make_unique<TabCaptionGuard>(fixture.app->hwnd, *slot);
+            captionGeometry = captionGuard->Geometry();
+            HRESULT error{};
+            try {
+                captionGuard->Apply(fixture.app->source);
+            } catch (winrt::hresult_error const &failure) {
+                error = failure.code();
+            }
+            if (!customClient) {
+                Check(error == E_NOTIMPL && !captionGuard->active,
+                      "an ordinary native-caption layout is refused before title mutation");
+                CheckCaptionRestored();
+                slot->Restore();
+                stage = 52;
+                rasterSamples = 0;
+                capture = CaptureTab(L"caption-rejected");
+            } else {
+                Check(error == S_OK && captionGuard->active, "custom-top-client caption transaction attaches");
+                Check(!captionGuard->presenter.HasTitleBar() && captionGuard->presenter.HasBorder(),
+                      "the actual presenter hides the native title and keeps its border");
+                Check(captionGuard->Geometry() == captionGeometry,
+                      "removing the native title changes no outer or client geometry");
+                Check(captionGuard->Refresh(), "caption ownership and the complete protected input region are ready");
+                {
+                    TabCaptionGuard duplicate(fixture.app->hwnd, *slot);
+                    HRESULT rejected{};
+                    try {
+                        duplicate.Apply(fixture.app->source);
+                    } catch (winrt::hresult_error const &failure) {
+                        rejected = failure.code();
+                    }
+                    Check(rejected == E_NOTIMPL && !duplicate.active,
+                          "a second caption transaction cannot replace an active filter");
+                }
+                DWORD_PTR filterOwner{};
+                Check(GetWindowSubclass(fixture.app->hwnd, TabCaptionGuard::Filter, TabCaptionGuard::Subclass,
+                                        &filterOwner) &&
+                          filterOwner == reinterpret_cast<DWORD_PTR>(captionGuard.get()),
+                      "destroying a refused transaction leaves the actual owner's filter installed");
+                for (auto const &rect : TabCaptionGuard::Read(Pointer(), input::NonClientRegionKind::Caption))
+                    Check(!TabCaptionGuard::Overlaps(rect, captionGuard->protectedRect),
+                          "original drag regions exclude the complete offset light group");
+                auto pass = TabCaptionGuard::Read(Pointer(), input::NonClientRegionKind::Passthrough);
+                Check(std::any_of(
+                          pass.begin(), pass.end(),
+                          [&](auto const &rect) { return TabCaptionGuard::Same(rect, captionGuard->protectedRect); }),
+                      "passthrough contains the real island-relative light group in top-level coordinates");
+                Check(captionGuard->protectedRect.X >= fixture.tabOffset,
+                      "the input rectangle accounts for the tab island's horizontal offset");
+                TITLEBARINFOEX info{sizeof(info)};
+                SendMessageW(fixture.app->hwnd, WM_GETTITLEBARINFOEX, 0, reinterpret_cast<LPARAM>(&info));
+                for (auto index : {2, 3, 5})
+                    Check((info.rgstate[index] &
+                           (STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_UNAVAILABLE | STATE_SYSTEM_OFFSCREEN)) ==
+                                  (STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_UNAVAILABLE | STATE_SYSTEM_OFFSCREEN) &&
+                              IsRectEmpty(&info.rgrect[index]),
+                          "old native button queries are hidden disabled and have empty bounds");
+                for (auto hit : {HTCLOSE, HTMINBUTTON, HTMAXBUTTON}) {
+                    for (auto message : {WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCLBUTTONDBLCLK})
+                        SendMessageW(fixture.app->hwnd, message, hit, 0);
+                    Check(SendMessageW(fixture.app->hwnd, WM_NCHITTEST, hit, -1) == HTCLIENT,
+                          "a synthetic stale native-button hit is filtered to client input");
+                }
+                Check(fixture.oldCaptionMessages == 0,
+                      "all nine synthetic old-button mouse messages are blocked before the host");
+                Check(SendMessageW(fixture.app->hwnd, WM_NCHITTEST, HTTOPRIGHT, -1) == HTTOPRIGHT,
+                      "the native resize-corner hit is preserved");
+                StableContent();
+                for (auto const &button : slot->buttons)
+                    Invoke(button);
+                stage = 51;
+                rasterSamples = 0;
+                capture = CaptureTab(L"caption-hidden");
+            }
+        } else if (stage == 51 && CaptureReady() && RasterStable(L"caption-hidden")) {
+            Check(fixture.commands == std::vector<UINT>{SC_CLOSE, SC_MINIMIZE, SC_MAXIMIZE},
+                  "the three new Click handlers still route their intercepted commands while native buttons are "
+                  "disabled");
+            Check(SolidPixels(255, 95, 87) >= 40 && SolidPixels(255, 189, 46) >= 40 && SolidPixels(40, 200, 64) >= 40,
+                  "all three lights remain rendered with the native title hidden");
+            captionGuard->Restore();
+            slot->Restore();
+            CheckCaptionRestored();
+            SendMessageW(fixture.app->hwnd, WM_NCLBUTTONDOWN, HTCLOSE, 0);
+            Check(fixture.oldCaptionMessages == 1, "undo releases the old-button mouse path back to the owned host");
+            Check(SendMessageW(fixture.app->hwnd, WM_NCHITTEST, HTCLOSE, -1) == HTCLOSE,
+                  "undo restores the owned host's synthetic native-button hit-test path");
+            stage = 52;
+            rasterSamples = 0;
+            capture = CaptureTab(L"caption-restored");
+        } else if (stage == 52 && CaptureReady() && RasterStable(L"caption-restored")) {
+            RasterDifference();
+            Check(captured == baseline, "caption undo or refusal restores every byte of the original tab root bitmap");
+            if (customClient) {
+                captionGuard.reset();
+                slot = std::make_unique<TabStripSlot>(fixture.app->hwnd, tabs);
+                slot->Apply();
+                stage = 53;
+            } else
+                Finish(true);
+        } else if (stage == 53 && slot->Ready()) {
+            captionGuard = std::make_unique<TabCaptionGuard>(fixture.app->hwnd, *slot);
+            captionGuard->Apply(fixture.app->source);
+            const std::vector<RectInt32> hostCaption{{300, 4, 120, 24}}, hostPass{{750, 8, 25, 25}};
+            TabCaptionGuard::Write(Pointer(), input::NonClientRegionKind::Caption, hostCaption);
+            TabCaptionGuard::Write(Pointer(), input::NonClientRegionKind::Passthrough, hostPass);
+            captionGuard->window.TitleBar().ForegroundColor(winrt::Windows::UI::Color{255, 121, 63, 184});
+            Check(!captionGuard->Refresh() && !captionGuard->active,
+                  "host input-region replacement ends caption ownership");
+            Check(TabCaptionGuard::Same(TabCaptionGuard::Read(Pointer(), input::NonClientRegionKind::Caption),
+                                        hostCaption) &&
+                      TabCaptionGuard::Same(TabCaptionGuard::Read(Pointer(), input::NonClientRegionKind::Passthrough),
+                                            hostPass),
+                  "rollback preserves the host's newer input regions instead of its stale snapshot");
+            auto color = captionGuard->window.TitleBar().ForegroundColor();
+            Check(color && color.Value().R == 121 && color.Value().G == 63 && color.Value().B == 184,
+                  "rollback preserves the host's newer native title palette");
+            slot->Restore();
+            TabCaptionGuard::Write(Pointer(), input::NonClientRegionKind::Caption, seedCaption);
+            TabCaptionGuard::Write(Pointer(), input::NonClientRegionKind::Passthrough, seedPass);
+            CheckCaptionRestored();
+            captionGuard.reset();
+            slot = std::make_unique<TabStripSlot>(fixture.app->hwnd, tabs);
+            slot->Apply();
+            stage = 54;
+        } else if (stage == 54 && slot->Ready()) {
+            captionGuard = std::make_unique<TabCaptionGuard>(fixture.app->hwnd, *slot);
+            captionGuard->Apply(fixture.app->source);
+            fixture.tabOffset += 6;
+            fixture.Layout();
+            Check(!captionGuard->Refresh() && !captionGuard->active,
+                  "moving the host tab island invalidates old light input coordinates and restores the title");
+            RECT moved{};
+            GetWindowRect(reinterpret_cast<HWND>(fixture.app->source.SiteBridge().WindowId().Value), &moved);
+            Check(moved.left == before[1].left + 6, "caption rollback does not overwrite a host-owned island move");
+            slot->Restore();
+            fixture.tabOffset -= 6;
+            fixture.Layout();
+            CheckCaptionRestored();
+            captionGuard.reset();
+            slot = std::make_unique<TabStripSlot>(fixture.app->hwnd, tabs);
+            slot->Apply();
+            stage = 55;
+        } else if (stage == 55 && slot->Ready()) {
+            captionGuard = std::make_unique<TabCaptionGuard>(fixture.app->hwnd, *slot);
+            HRESULT error{};
+            fixture.reflowWhenHidden = true;
+            try {
+                captionGuard->Apply(fixture.app->source);
+            } catch (winrt::hresult_error const &failure) {
+                error = failure.code();
+            }
+            Check(!fixture.reflowWhenHidden,
+                  "the one-shot custom-client layout fault actually executes during title removal");
+            std::cout << "caption-reflow HRESULT=" << std::hex << error << std::dec
+                      << " active=" << captionGuard->active << '\n';
+            Check(error == E_NOTIMPL && !captionGuard->active,
+                  "a host which shifts its client when the title hides is rejected and rolled back");
+            slot->Restore();
+            CheckCaptionRestored();
+            Check(SendMessageW(fixture.edit, EM_UNDO, 0, 0) != 0,
+                  "the native document undo survives all caption transactions");
+            wchar_t text[128]{};
+            GetWindowTextW(fixture.edit, text, 128);
+            Check(wcscmp(text, L"Owned original document") == 0,
+                  "native undo restores the exact original document after caption recovery");
+            Finish(true);
         } else if (stage == 1 && slot->Ready()) {
             stage = 31;
             rasterSamples = 0;
@@ -586,6 +810,9 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
 BOOL WINAPI ShowTabFixture(HWND window, int command) {
     if (command == SW_SHOW) {
         fixture.Create(window);
+        if (customClient)
+            winrt::check_bool(SetWindowPos(window, nullptr, 0, 0, 0, 0,
+                                           SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED));
         SetWindowPos(window, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         command = SW_SHOWNOACTIVATE;
     }
@@ -594,6 +821,8 @@ BOOL WINAPI ShowTabFixture(HWND window, int command) {
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR command, int show) {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     std::cout << std::unitbuf;
+    captionTest = wcsstr(GetCommandLineW(), L"--caption-guard") != nullptr;
+    customClient = wcsstr(GetCommandLineW(), L"--custom-client") != nullptr;
     started = GetTickCount64();
     timer = SetTimer(nullptr, 0, 60, Tick);
     if (!timer)
