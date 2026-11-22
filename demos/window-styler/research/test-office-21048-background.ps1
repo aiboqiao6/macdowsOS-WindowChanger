@@ -2,20 +2,34 @@ param(
  [string]$HostDirectory=(Join-Path $PSScriptRoot '../out/framework-probe-x64/office-21048-research/Release'),
  [string]$OutputDirectory=(Join-Path $PSScriptRoot '../out/live-v45/office-background-Release'),
  [switch]$ReadOnly,
+ [ValidateSet('normal','owner-loss','resize')][string]$Scenario='normal',
  [ValidateSet('Word','Excel')][string[]]$Applications=@('Word','Excel')
 )
 $ErrorActionPreference='Stop'
 $Candidate=-not $ReadOnly
+if($ReadOnly -and $Scenario -ne 'normal'){throw 'Lifecycle verification requires the isolated candidate'}
 if(Test-Path -LiteralPath $OutputDirectory){throw 'Use a new output directory to preserve evidence'}
 [void](New-Item -ItemType Directory -Path $OutputDirectory)
 $OutputDirectory=(Resolve-Path -LiteralPath $OutputDirectory).Path
 Add-Type @'
-using System;using System.Runtime.InteropServices;
+using System;using System.IO;using System.Threading.Tasks;using System.Runtime.InteropServices;
+public sealed class OwnedOfficeHostOutput {
+ public volatile bool Ready;
+ public Task<string> Completion {get;private set;}
+ public OwnedOfficeHostOutput(StreamReader reader){Completion=Read(reader);}
+ private async Task<string> Read(StreamReader reader){var text=new System.Text.StringBuilder();string line;while((line=await reader.ReadLineAsync().ConfigureAwait(false))!=null){text.AppendLine(line);if(line=="ready-for-owner-loss=1")Ready=true;}return text.ToString();}
+}
 public static class OwnedOfficeRead {
+ [StructLayout(LayoutKind.Sequential)]public struct R {public int l,t,r,b;}
  [DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);
  [DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();
  [DllImport("user32.dll")]public static extern bool SetWindowPos(IntPtr h,IntPtr z,int x,int y,int w,int t,uint f);
  [DllImport("user32.dll")]public static extern bool EnableWindow(IntPtr h,bool enabled);
+ [DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern IntPtr GetProp(IntPtr h,string name);
+ [DllImport("user32.dll")]static extern bool GetWindowRect(IntPtr h,out R r);
+ [DllImport("user32.dll")]static extern bool GetClientRect(IntPtr h,out R r);
+ [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")]static extern IntPtr GetWindowLongPtr(IntPtr h,int index);
+ public static string Geometry(IntPtr h){R o,c;if(!GetWindowRect(h,out o)||!GetClientRect(h,out c))throw new Exception("Owned geometry query failed");return string.Join(",",o.l,o.t,o.r,o.b,c.l,c.t,c.r,c.b,GetWindowLongPtr(h,-16).ToInt64(),GetWindowLongPtr(h,-20).ToInt64());}
 }
 '@
 $base=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -27,7 +41,7 @@ foreach($application in $Applications){
  $name=if($application -eq 'Word'){'WINWORD'}else{'EXCEL'}
  $existing=@(Get-Process $name -ErrorAction SilentlyContinue|ForEach-Object Id)
  $app=$null;$document=$null;$collection=$null;$windowObject=$null;$owned=$null;$ownedPid=0;$safeToQuit=$false;$succeeded=$false
- $record=[ordered]@{application=$application;existingProcessCount=$existing.Count;readerExecutedTargetCode=$false;injectionPerformed=$false;visualVerification=$false}
+ $record=[ordered]@{application=$application;scenario=$Scenario;existingProcessCount=$existing.Count;readerExecutedTargetCode=$false;injectionPerformed=$false;visualVerification=$false}
  try {
   if($existing.Count){throw 'Existing Office processes are left untouched; close them before using this owned-instance verifier'}
   $app=New-Object -ComObject ($application+'.Application')
@@ -79,21 +93,45 @@ foreach($application in $Applications){
   $record.profile=$tree.readOnlyProfile;$record.roots=$tree.roots.Count;$record.nodes=$tree.nodes.Count
   $record.objects=$metadata.objects.Count;$record.budgetReached=$metadata.budgetReached;$record.complete=$tree.complete
   if($Candidate){
+   $beforeGeometry=[OwnedOfficeRead]::Geometry($handle)
    $hostPath=(Resolve-Path (Join-Path $HostDirectory 'Office21048BackgroundHost.exe')).Path
    $p=[Diagnostics.Process]::new();$p.StartInfo.FileName=$hostPath;$p.StartInfo.UseShellExecute=$false;$p.StartInfo.CreateNoWindow=$true;$p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true
    $p.StartInfo.ArgumentList.Add($record.hwnd);$p.StartInfo.ArgumentList.Add($ownerPid.ToString())
+   if($Scenario -eq 'owner-loss'){$p.StartInfo.ArgumentList.Add('--wait-owner-loss')}
+   if($Scenario -eq 'resize'){$p.StartInfo.ArgumentList.Add('--resize-roundtrip')}
    $record.injectionAttempted=$true;$record.hostHash=(Get-FileHash $hostPath).Hash
-   [void]$p.Start();$stdout=$p.StandardOutput.ReadToEndAsync();$stderr=$p.StandardError.ReadToEndAsync()
+   [void]$p.Start();$hostOutput=[OwnedOfficeHostOutput]::new($p.StandardOutput);$stdout=$hostOutput.Completion;$stderr=$p.StandardError.ReadToEndAsync()
+   if($Scenario -eq 'owner-loss'){
+    $readyDeadline=[DateTime]::UtcNow.AddSeconds(8)
+    while(-not $hostOutput.Ready -and -not $p.HasExited -and [DateTime]::UtcNow -lt $readyDeadline){Start-Sleep -Milliseconds 50}
+    if(-not $hostOutput.Ready){throw 'Owned controller did not confirm readiness for the owner-loss test'}
+    $lease=[OwnedOfficeRead]::GetProp($handle,'Macdows.WindowStyler.Owner.v1')
+    [uint32]$leasePid=0;[void][OwnedOfficeRead]::GetWindowThreadProcessId($lease,[ref]$leasePid)
+    if($lease -eq [IntPtr]::Zero -or $leasePid -ne $p.Id -or $p.Path -ne $hostPath){throw 'Owner-loss target is not this exact owned child controller'}
+    $record.readyBeforeOwnerLoss=$true
+    $p.Kill()
+   }
    if(-not $p.WaitForExit(20000)){throw 'Owned candidate host timeout'}
    $stdout.GetAwaiter().GetResult()|Set-Content -LiteralPath (Join-Path $out 'candidate.log') -Encoding utf8
    $stderr.GetAwaiter().GetResult()|Set-Content -LiteralPath (Join-Path $out 'candidate.err') -Encoding utf8
    $record.candidateExitCode=$p.ExitCode;$p.Dispose()
+   $restoreDeadline=[DateTime]::UtcNow.AddSeconds(8)
+   while([OwnedOfficeRead]::GetProp($handle,'Macdows.WindowStyler.Owner.v1') -ne [IntPtr]::Zero -and [DateTime]::UtcNow -lt $restoreDeadline){Start-Sleep -Milliseconds 50}
+   $record.leaseRemoved=([OwnedOfficeRead]::GetProp($handle,'Macdows.WindowStyler.Owner.v1') -eq [IntPtr]::Zero -and [OwnedOfficeRead]::GetProp($handle,'Macdows.WindowStyler.Inline.v4') -eq [IntPtr]::Zero)
+   $record.exactGeometryRestored=($beforeGeometry -ceq [OwnedOfficeRead]::Geometry($handle))
+   if(-not $record.leaseRemoved -or -not $record.exactGeometryRestored){throw 'Controller loss/exit did not restore the exact owned geometry and lease state'}
    & python (Join-Path $base 'research/office-tree.py') --hwnd $record.hwnd --out (Join-Path $out 'tree-after.json') *> (Join-Path $out 'tree-after.log')
    if($LASTEXITCODE -ne 0){throw 'Candidate rollback tree read failed'}
    $afterTree=Get-Content -LiteralPath (Join-Path $out 'tree-after.json') -Raw|ConvertFrom-Json
    $record.exactTreeRestored=($afterTree.complete -and ($tree.nodes|ConvertTo-Json -Depth 8 -Compress) -ceq ($afterTree.nodes|ConvertTo-Json -Depth 8 -Compress))
+   $reportPath=Join-Path $HostDirectory "office-lease-$ownerPid.json"
+   Copy-Item -LiteralPath $reportPath -Destination (Join-Path $out 'lease-report.json')
+   $leaseReport=Get-Content -LiteralPath (Join-Path $out 'lease-report.json') -Raw|ConvertFrom-Json
+   $record.cleanupFailures=$leaseReport.cleanupFailures
+   if($leaseReport.active -or $leaseReport.cleanupFailures -ne 0){throw 'Owned lease report is still active or reports cleanup failures'}
    if(-not $record.exactTreeRestored){throw 'Candidate did not restore exact original node tree and geometry'}
-   if($record.candidateExitCode -ne 0){Get-Content (Join-Path $out 'candidate.log') -Tail 12;throw 'Candidate did not pass the owned background transaction'}
+   $expectedExit=if($Scenario -eq 'owner-loss'){-1}else{0}
+   if($record.candidateExitCode -ne $expectedExit){Get-Content (Join-Path $out 'candidate.log') -Tail 12;throw 'Candidate did not have the expected owned-controller exit status'}
    $record.injectionPerformed=$true
   }
   $succeeded=$true
