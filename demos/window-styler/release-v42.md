@@ -1,8 +1,8 @@
 # macdowsOS WindowChanger v43（验证候选）
 
-当前为验证候选版本。WinUI 标准 TextBox 的整窗像素对照曾间歇出现三个圆角灰度像素各相差 1，原因尚未关闭；新修订正在重新验证。全部已安装软件、全部窗口类型及实际亮暗主题覆盖仍未完成。
+当前为验证候选版本。WinUI 标准 TextBox 历史上的三个圆角灰度差异像素已在从未注入的原生对照中原样复现；Debug/Release 深浅色正常和异常退出四场景分别完成 896 项。底层像素变体机制尚未定位，历史失败保留，详见 `verification-v46.md`。全部已安装软件、全部窗口类型及实际亮暗主题覆盖仍未完成。
 
-本机完整候选 `WindowChanger-v43-9751c3cbb38a-candidate.zip` 的运行时为 `9751c3cbb38a`；这不是 CI core-only 产物的运行时编号。新增 WinUI 原生标题后端的初始内容源探测防护：先排除关闭 bridge，再读取 Content，并处理空 XamlRoot。当前候选已完成包内实际管理员生命周期 138 项、自动接管及正常/异常恢复 60 项、四配置完整 CTest 84 项和 Debug 边界/焦点/配色 107 项。管理员组覆盖托盘、最高权限交互登录任务注册及 TaskScheduler.Run，没有实际重启或重新登录。Debug 文本最终整窗比较仍有三个像素每通道相差 1，根因未关闭；完整前台矩阵及全机适配仍未完成。新增后台生命周期入口明确跳过视觉检查，不用后台通过替代截图验收。详见源码中的 `verification-v44.md`。
+本机完整候选 `WindowChanger-v43-9751c3cbb38a-candidate.zip` 的运行时为 `9751c3cbb38a`；这不是 CI core-only 产物的运行时编号。新增 WinUI 原生标题后端的初始内容源探测防护：先排除关闭 bridge，再读取 Content，并处理空 XamlRoot。当前候选已完成包内实际管理员生命周期 138 项、自动接管及正常/异常恢复 60 项、四配置完整 CTest 84 项和 Debug 边界/焦点/配色 107 项。管理员组覆盖托盘、最高权限交互登录任务注册及 TaskScheduler.Run，没有实际重启或重新登录。历史三个像素的变体已在未注入原生对照复现，当前 Debug/Release 文本四场景矩阵完成；WinUI 其他布局和全机适配仍未完成。新增后台生命周期入口明确跳过视觉检查，不用后台通过替代截图验收。详见源码中的 `verification-v46.md`、`verification-v44.md`。
 
 适用于 Windows 的仿 macOS 通用窗口样式注入框架。解压后以管理员身份运行 `WindowStyler.exe`，保留旁边的 `x86` 目录。默认自动接管所有检测为支持的窗口，不按软件名或是否单独测试过筛选，没有黑白名单。关闭主界面后驻留托盘；开机自启需在界面或托盘主动开启。手动全部还原会暂停自动接管，重新开启后再次检测。
 
@@ -16,6 +16,6 @@
 
 实际打包后端以 `runtime-features.json` 和两种架构的 `adapters.ini` 为准。CI 的 `core-only` 编译包缺少本机 SDK 构建的 Qt 与正式 WinUI 3 后端，不能代替本机完整运行包。
 
-2026-11-23：当前电脑的 Office `16.0.14334.21048` 已超出本包旧版 Office profile。新版本的 Word、Excel 已在独立研究后端通过 Debug/Release 后台接管、原按钮隐藏禁用及精确撤销；真实深浅色绘制等验证仍待完成，未加入本包的默认自动接管。详情见源码中的 `verification-v45.md`。
+2026-11-23：当前电脑的 Office `16.0.14334.21048` 已超出本包旧版 Office profile。新版 Word、Excel、PowerPoint 在独立研究后端的 Debug/Release 后台事务和当前黑白主题真实按钮验证已推进，Word/Excel 交互后的节点重建另有原生对照；未加入本包默认自动接管。详情见源码中的 `verification-v46.md`、`verification-v45.md`。
 
 包内包含 x64/x86 的 VC++ 可再发行运行库，不含测试程序、软件库存、截图或私有诊断。源码与 GPLv3 授权见 [GitHub 仓库](https://github.com/aiboqiao6/macdowsOS-WindowChanger) 及 `LICENSE.txt`；MinHook 授权见 `third_party/minhook-LICENSE.txt`。

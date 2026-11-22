@@ -137,13 +137,17 @@ foreach($application in $Applications){
    $afterTree=Get-Content -LiteralPath (Join-Path $out 'tree-after.json') -Raw|ConvertFrom-Json
    $record.exactTreeRestored=($afterTree.complete -and ($tree.nodes|ConvertTo-Json -Depth 8 -Compress) -ceq ($afterTree.nodes|ConvertTo-Json -Depth 8 -Compress))
    $reportPath=Join-Path $HostDirectory "office-lease-$ownerPid.json"
-   Copy-Item -LiteralPath $reportPath -Destination (Join-Path $out 'lease-report.json')
-   $leaseReport=Get-Content -LiteralPath (Join-Path $out 'lease-report.json') -Raw|ConvertFrom-Json
-   $record.cleanupFailures=$leaseReport.cleanupFailures
-   if($leaseReport.active -or $leaseReport.cleanupFailures -ne 0){throw 'Owned lease report is still active or reports cleanup failures'}
-   if(-not $record.exactTreeRestored){throw 'Candidate did not restore exact original node tree and geometry'}
+   $record.leaseReportPresent=Test-Path -LiteralPath $reportPath
+   if($record.leaseReportPresent){
+    Copy-Item -LiteralPath $reportPath -Destination (Join-Path $out 'lease-report.json')
+    $leaseReport=Get-Content -LiteralPath (Join-Path $out 'lease-report.json') -Raw|ConvertFrom-Json
+    $record.cleanupFailures=$leaseReport.cleanupFailures
+    if($leaseReport.active -or $leaseReport.cleanupFailures -ne 0){throw 'Owned lease report is still active or reports cleanup failures'}
+   }
    $expectedExit=if($Scenario -eq 'owner-loss'){-1}else{0}
    if($record.candidateExitCode -ne $expectedExit){Get-Content (Join-Path $out 'candidate.log') -Tail 12;throw 'Candidate did not have the expected owned-controller exit status'}
+   if(-not $record.leaseReportPresent){throw 'Successful candidate did not produce its lease cleanup report'}
+   if(-not $record.exactTreeRestored){throw 'Candidate did not restore exact original node tree and geometry'}
    $record.injectionPerformed=$true
   }
   $succeeded=$true

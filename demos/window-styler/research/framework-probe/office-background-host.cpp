@@ -28,10 +28,11 @@ bool OriginalButtonsDisabled(HWND target) {
             return false;
     return true;
 }
-bool Healthy(HWND target, styler::Session &session) {
+bool Healthy(HWND target, styler::Session &session, bool requireBackground = true) {
     const auto metrics = RegisterWindowMessageW(L"Macdows.OfficeLease.Metrics.v1");
     DWORD_PTR healthy{}, disabled{};
-    return GetForegroundWindow() != target && session.Owns(target) && OriginalButtonsDisabled(target) &&
+    return (!requireBackground || GetForegroundWindow() != target) && session.Owns(target) &&
+           OriginalButtonsDisabled(target) &&
            SendMessageTimeoutW(target, metrics, 1, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 2000, &healthy) && healthy == 1 &&
            SendMessageTimeoutW(target, metrics, 7, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 2000, &disabled) && disabled == 1;
 }
@@ -39,7 +40,8 @@ bool Healthy(HWND target, styler::Session &session) {
 
 int wmain(int argc, wchar_t **argv) {
     std::cout << std::unitbuf;
-    const bool waitForOwnerLoss = argc == 4 && !wcscmp(argv[3], L"--wait-owner-loss");
+    const bool waitForOwnedInput = argc == 4 && !wcscmp(argv[3], L"--wait-owned-input");
+    const bool waitForOwnerLoss = waitForOwnedInput || (argc == 4 && !wcscmp(argv[3], L"--wait-owner-loss"));
     const bool resizeRoundtrip = argc == 4 && !wcscmp(argv[3], L"--resize-roundtrip");
     if (argc != 3 && !waitForOwnerLoss && !resizeRoundtrip)
         return ERROR_INVALID_PARAMETER;
@@ -51,7 +53,8 @@ int wmain(int argc, wchar_t **argv) {
     const auto expectedPid = wcstoul(argv[2], &end, 10);
     DWORD pid{};
     GetWindowThreadProcessId(target, &pid);
-    if (!expectedPid || !end || *end || pid != expectedPid || !IsWindow(target) || GetForegroundWindow() == target)
+    if (!expectedPid || !end || *end || pid != expectedPid || !IsWindow(target) ||
+        (!waitForOwnedInput && GetForegroundWindow() == target))
         return ERROR_INVALID_WINDOW_HANDLE;
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     RECT outer{}, client{};
@@ -80,7 +83,7 @@ int wmain(int argc, wchar_t **argv) {
             std::cout << "query=" << owned << '\n';
             const auto hidden = OriginalButtonsDisabled(target);
             std::cout << "original-buttons-hidden-disabled=" << hidden << '\n';
-            if (!owned || !hidden || !Healthy(target, session))
+            if (!owned || !hidden || !Healthy(target, session, !waitForOwnedInput))
                 code = ERROR_INVALID_STATE;
             if (!code && resizeRoundtrip) {
                 const auto width = outer.right - outer.left, height = outer.bottom - outer.top;
@@ -158,7 +161,7 @@ int wmain(int argc, wchar_t **argv) {
         const auto exact = EqualRect(&outer, &nowOuter) && EqualRect(&client, &nowClient) &&
                            style == GetWindowLongPtrW(target, GWL_STYLE);
         std::cout << "original-geometry-and-style-restored=" << exact << '\n';
-        if (!exact || GetForegroundWindow() == target)
+        if (!exact || (!waitForOwnedInput && GetForegroundWindow() == target))
             code = ERROR_INVALID_STATE;
     }
     DestroyWindow(owner);

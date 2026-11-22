@@ -276,6 +276,7 @@
     <None Include="../../demos/window-styler/verification-v43.md" />
     <None Include="../../demos/window-styler/verification-v44.md" />
     <None Include="../../demos/window-styler/verification-v45.md" />
+    <None Include="../../demos/window-styler/verification-v46.md" />
     <None Include="../../demos/window-styler/research/office-readonly-profiles.py" />
     <None Include="../../demos/window-styler/research/test-office-readonly-profiles.py" />
     <None Include="../../demos/window-styler/research/test-office-21048-background.ps1" />

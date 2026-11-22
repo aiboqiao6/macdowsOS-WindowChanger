@@ -10,7 +10,8 @@ param(
  [switch]$TreeGeometry,
  [switch]$DiagnoseFailure,
  [string]$FailureReader,
- [switch]$ReadNativeComposition
+ [switch]$ReadNativeComposition,
+ [switch]$ForegroundTrace
 )
 $ErrorActionPreference='Stop'
 if($NativeViewportCycle -and -not $WithoutInjection){throw 'Viewport diagnostic is only available without injection'}
@@ -52,6 +53,11 @@ public static class NativeIslandText {
  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback,IntPtr data);
  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);
  [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
+ [StructLayout(LayoutKind.Sequential)]struct LastInput {public uint size,time;}
+ [DllImport("user32.dll")]static extern bool GetLastInputInfo(ref LastInput info);
+ [DllImport("kernel32.dll")]static extern uint GetTickCount();
+ public static string TracePath;
+ public static void Trace(string label,IntPtr expected){if(string.IsNullOrEmpty(TracePath))return;var info=new LastInput{size=(uint)Marshal.SizeOf(typeof(LastInput))};GetLastInputInfo(ref info);var current=GetForegroundWindow();uint pid;GetWindowThreadProcessId(current,out pid);System.IO.File.AppendAllText(TracePath,GetTickCount()+","+info.time+",0x"+expected.ToInt64().ToString("x")+",0x"+current.ToInt64().ToString("x")+","+pid+","+label+Environment.NewLine);}
  [DllImport("user32.dll")] static extern uint SendInput(uint n,I[] input,int size);
  [DllImport("user32.dll")] static extern uint MapVirtualKey(uint code,uint map);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern IntPtr GetProp(IntPtr h,string n);
@@ -60,8 +66,28 @@ public static class NativeIslandText {
  public static long Send(IntPtr h,uint m,long w=0){UIntPtr r;if(SendMessageTimeout(h,m,(IntPtr)w,IntPtr.Zero,2,2000,out r)==IntPtr.Zero)throw new Exception("Fixture timeout");return unchecked((long)r.ToUInt64());}
  public static IntPtr Find(uint pid){IntPtr result=IntPtr.Zero;EnumWindows((h,l)=>{uint p;GetWindowThreadProcessId(h,out p);if(p==pid&&GetProp(h,"Macdows.Research.NativeIsland.Owned")!=IntPtr.Zero){result=h;return false;}return true;},IntPtr.Zero);return result;}
  public static int[] Geometry(IntPtr h){R o,c;var p=new P();GetWindowRect(h,out o);GetClientRect(h,out c);ClientToScreen(h,ref p);return new[]{o.l,o.t,o.r,o.b,c.l,c.t,c.r,c.b,p.x,p.y};}
- public static void OwnedForeground(IntPtr h){var actual=GetForegroundWindow();if(actual!=h){uint foreignPid;GetWindowThreadProcessId(actual,out foreignPid);throw new Exception("Owned fixture is not foreground: HWND 0x"+actual.ToInt64().ToString("x")+" PID "+foreignPid);}uint pid;GetWindowThreadProcessId(h,out pid);if(Find(pid)!=h)throw new Exception("Input target is not owned");}
+ public static void OwnedForeground(IntPtr h){var actual=GetForegroundWindow();if(actual!=h){Trace("rejected-before-input",h);uint foreignPid;GetWindowThreadProcessId(actual,out foreignPid);throw new Exception("Owned fixture is not foreground: HWND 0x"+actual.ToInt64().ToString("x")+" PID "+foreignPid);}uint pid;GetWindowThreadProcessId(h,out pid);if(Find(pid)!=h)throw new Exception("Input target is not owned");}
  public static void Guard(IntPtr h){if(SetThreadDpiAwarenessContext((IntPtr)(-4))==IntPtr.Zero)throw new Exception("Cannot establish physical input coordinates");OwnedForeground(h);foreach(var k in new[]{16,17,18,91,92})if(GetAsyncKeyState(k)<0)throw new Exception("User modifier key is held");}
+ // A background verifier may be denied SetForegroundWindow. Only an empty
+ // native caption of this exact owned fixture may receive an activation click.
+ public static void ActivateOwned(IntPtr h){
+  if(GetForegroundWindow()==h){Guard(h);return;}
+  if(SetThreadDpiAwarenessContext((IntPtr)(-4))==IntPtr.Zero)throw new Exception("Cannot establish activation coordinates");
+  uint pid;GetWindowThreadProcessId(h,out pid);
+  if(Find(pid)!=h||GetProp(h,"Macdows.WindowStyler.Owner.v1")!=IntPtr.Zero)throw new Exception("Activation requires an uninjected owned fixture");
+  foreach(var key in new[]{1,2,4,5,6,16,17,18,91,92})if(GetAsyncKeyState(key)<0)throw new Exception("User key or mouse button is held");
+  R bounds;if(!GetWindowRect(h,out bounds)||bounds.r-bounds.l<400)throw new Exception("Invalid owned activation bounds");
+  var point=new P{x=(bounds.l+bounds.r)/2,y=bounds.t+20};
+  UIntPtr hit;var packed=unchecked((uint)((point.x&65535)|((point.y&65535)<<16)));
+  if(SendMessageTimeout(h,0x84,IntPtr.Zero,(IntPtr)(long)packed,2,2000,out hit)==IntPtr.Zero||hit.ToUInt64()!=2)throw new Exception("Activation point is not an empty native caption");
+  if(!SetCursorPos(point.x,point.y))throw new Exception("Cannot position owned activation cursor");
+  P actual;var hitWindow=WindowFromPoint(point);uint hitPid;GetWindowThreadProcessId(hitWindow,out hitPid);
+  if(!GetPhysicalCursorPos(out actual)||actual.x!=point.x||actual.y!=point.y||hitWindow!=h)throw new Exception("Owned activation point is occluded or moved: requested "+point.x+","+point.y+" actual "+actual.x+","+actual.y+" hit HWND 0x"+hitWindow.ToInt64().ToString("x")+" PID "+hitPid);
+  foreach(var key in new[]{1,2,4,5,6,16,17,18,91,92})if(GetAsyncKeyState(key)<0)throw new Exception("User input changed before activation");
+  Input(new[]{new I{u=new U{m=new M{flags=2}}},new I{u=new U{m=new M{flags=4}}}});
+  var deadline=DateTime.UtcNow.AddSeconds(2);while(GetForegroundWindow()!=h&&DateTime.UtcNow<deadline)System.Threading.Thread.Sleep(20);
+  Guard(h);
+ }
  // WinUI text selection needs the physical modifier scan code. Navigation keys
  // also carry the extended-key flag, matching a real keyboard's event sequence.
  static I Key(ushort vk,ushort scan,uint flags){if(vk!=0){scan=(ushort)MapVirtualKey(vk,0);if(vk>=33&&vk<=46)flags|=1;}return new I{type=1,u=new U{k=new K{vk=vk,scan=scan,flags=flags}}};}
@@ -72,8 +98,10 @@ public static class NativeIslandText {
 }
 '@
 [void][NativeIslandText]::SetProcessDpiAwarenessContext([IntPtr](-4))
+if($ForegroundTrace){[NativeIslandText]::TracePath=Join-Path $OutputDirectory 'foreground-trace.csv'}
 $checks=[Collections.Generic.List[object]]::new()
 function Check($value,[string]$name){
+ [NativeIslandText]::Trace($script:run+' '+$name,$script:h)
  $checks.Add([pscustomobject]@{scenario=$script:run;name=$name;passed=[bool]$value})
  $checks|ConvertTo-Json -Depth 4|Set-Content -LiteralPath (Join-Path $OutputDirectory 'checks.json') -Encoding utf8
  if(-not $value){throw ('Check failed: '+$name)}
@@ -94,7 +122,7 @@ function TextValue {
  $s.ToString()
 }
 function ExpectText([string]$expected,[string]$name){Check (Until {(TextValue) -ceq $expected}) $name}
-function Press([int]$key,[bool]$ctrl=$false,[bool]$shift=$false){[NativeIslandText]::Press($script:h,$key,$ctrl,$shift);Start-Sleep -Milliseconds 80}
+function Press([int]$key,[bool]$ctrl=$false,[bool]$shift=$false){[NativeIslandText]::Trace('before test key '+$key,$script:h);[NativeIslandText]::Press($script:h,$key,$ctrl,$shift);Start-Sleep -Milliseconds 80;[NativeIslandText]::Trace('after test key '+$key,$script:h)}
 function TextInput([string]$s){[NativeIslandText]::Type($script:h,$s);Start-Sleep -Milliseconds 100}
 function SelectFirst([int]$n){Press 36 $true;for($i=0;$i -lt $n;$i++){Press 39 $false $true}}
 function State {
@@ -177,6 +205,9 @@ try {
   $nativePixelHashes=[Collections.Generic.List[string]]::new()
   $passes=@('control','control2','control3');if(-not $WithoutInjection){$passes+='target'}
   foreach($pass in $passes){
+  # A prior fixture's topmost screenshot backdrop must not cover the next
+  # fixture's activation point after its original anchor HWND has closed.
+  [NativeIslandCaptureBackdrop]::Close()
   $nativeControl=$pass -ne 'target'
   $script:run=$matrix+$(if($nativeControl){'-'+$pass}else{''});$light=$matrix.StartsWith('light');$crash=$matrix.EndsWith('crash')
   $script:fixture=Start-Process -FilePath $fixturePath -ArgumentList ('--text-editor --'+$(if($light){'light'}else{'dark'})) -WindowStyle Hidden -PassThru
@@ -185,6 +216,7 @@ try {
   Check ($script:fixture.Path -eq $fixturePath) 'owned fixture executable verified'
   [void][NativeIslandText]::SetWindowPos($script:h,[IntPtr](-1),160,160,1200,720,0x40)
   [void][NativeIslandText]::SetForegroundWindow($script:h)
+  [NativeIslandText]::ActivateOwned($script:h)
   Check (Until {(Metric 57) -eq 720 -and (Metric 58) -eq 240 -and (Metric 54) -eq 1}) 'standard TextBox is loaded at expected 144 DPI size'
   Check ((Owner) -eq [IntPtr]::Zero -and (Metric 55) -eq 0) 'native fixture has no lease or TextBox unload'
   Command 21
