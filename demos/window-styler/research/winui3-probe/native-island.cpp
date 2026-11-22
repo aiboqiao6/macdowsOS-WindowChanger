@@ -57,24 +57,31 @@ x::Hosting::DesktopWindowXamlSource NativeSource(HWND h) {
     ClientToScreen(h, &origin);
     x::Hosting::DesktopWindowXamlSource result{nullptr};
     unsigned matches{};
-    for (auto const &source : Roots())
-        if (auto root = source.Content();
-            root && root.XamlRoot().ContentIslandEnvironment().AppWindowId().Value == reinterpret_cast<uint64_t>(h)) {
+    for (auto const &source : Roots()) {
+        // A closed source's Content getter can block or fault. Check the
+        // retained public bridge before accessing Content, as rollback does.
+        auto bridge = source.SiteBridge();
+        if (!bridge || bridge.IsClosed())
+            continue;
+        auto root = source.Content();
+        auto xamlRoot = root ? root.XamlRoot() : nullptr;
+        if (xamlRoot && xamlRoot.ContentIslandEnvironment().AppWindowId().Value == reinterpret_cast<uint64_t>(h)) {
             ++matches;
             auto element = root.try_as<x::FrameworkElement>();
             auto window = w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(h)});
             auto presenter = window.Presenter().try_as<w::OverlappedPresenter>();
-            auto island = reinterpret_cast<HWND>(source.SiteBridge().WindowId().Value);
+            auto island = reinterpret_cast<HWND>(bridge.WindowId().Value);
             RECT actual{}, expected{origin.x, origin.y, origin.x + client.right, origin.y + client.bottom};
             if (!element || !element.IsLoaded() || element.FlowDirection() != x::FlowDirection::LeftToRight ||
                 element.GetBindingExpression(c::Grid::RowProperty()) || !presenter || !presenter.HasBorder() ||
                 !presenter.HasTitleBar() || window.TitleBar().ExtendsContentIntoTitleBar() || GetParent(island) != h ||
                 !GetWindowRect(island, &actual) || !EqualRect(&actual, &expected) ||
-                std::abs(element.ActualWidth() * root.XamlRoot().RasterizationScale() - client.right) > 1 ||
-                std::abs(element.ActualHeight() * root.XamlRoot().RasterizationScale() - client.bottom) > 1)
+                std::abs(element.ActualWidth() * xamlRoot.RasterizationScale() - client.right) > 1 ||
+                std::abs(element.ActualHeight() * xamlRoot.RasterizationScale() - client.bottom) > 1)
                 return nullptr;
             result = source;
         }
+    }
     return matches == 1 ? result : nullptr;
 }
 bool NativeRelease(NativeLease *s, bool destroying = false) {

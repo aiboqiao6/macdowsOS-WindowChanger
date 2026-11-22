@@ -4,6 +4,8 @@ v42 通过 `winui3-native.cpp` 共用此实现，正式注册为 Adapter288；�
 
 ## 布局与恢复
 
+2026-11-22 的正式修订 `9751c3cbb38a` 为初始 NativeSource 探测补上 bridge 关闭检查和空 XamlRoot 处理。`WinUI3ClosedTitleTests --closed-source-probe --text-editor` 以深浅色验证实际注册模块在原源关闭、宿主持有旧源、创建空源及同 HWND 重建后的 Probe/Attach 行为，每主题 18 项、Debug/Release 共 72 项通过；与既有关闭标题契约合计 428 项。只使用自有后台窗口。验证器曾因重读关闭源的 SiteBridge 超时，改用关闭前保留的 bridge 后通过；失败日志保留。初始生产阻塞未在实际应用中复现，其他入口未因此获得生命周期保证。新修订完整前台和包生命周期尚待验证，旧运行时的结果单独保留于 [v43 验证记录](../../verification-v43.md)。
+
 原生 GDI 兜底不能可靠绘制到真实 WinUI 合成窗口。这个实验通过公共 AppWindow/OverlappedPresenter API 保留边框并移除原生标题，再在新获得的客户区顶部创建独立 DesktopWindowXamlSource，使用真实 XAML Button 绘制三灯。原岛屿只改变相对于客户区的位置，维持原尺寸和屏幕位置；正式实验不改写、包裹或卸载原 Content，不修改其 Margin 或 Row。
 
 NativeIslandFrame 还保留了包裹原根和修改原根 Margin 两种对照模式，仅供复现失败实验。WinUI3NativeIslandHost 始终使用独立标题岛屿模式；两个对照模式不能作为实际画图适配方案。

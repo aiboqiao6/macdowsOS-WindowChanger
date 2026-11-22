@@ -26,7 +26,7 @@ bool checking{};
 std::array<LONG, 10> geometry{};
 LONG_PTR style{};
 HWND originalIsland{};
-bool production{}, bootstrap{};
+bool production{}, bootstrap{}, closedSourceProbe{};
 HWND owner{};
 HANDLE host{};
 HANDLE hostRead{};
@@ -34,7 +34,9 @@ DWORD hostPid{};
 std::string hostOutput;
 styler::AdapterContextV1 context;
 styler::AdapterAttachV1 attach{};
+styler::AdapterProbeV1 probe{};
 x::Hosting::DesktopWindowXamlSource closedTitle{nullptr};
+x::Hosting::DesktopWindowXamlSource closedContentSource{nullptr};
 winrt::Microsoft::UI::Content::DesktopChildSiteBridge closedBridge{nullptr};
 
 void Check(bool value, const char *name) {
@@ -171,7 +173,7 @@ void Restored(App *app) {
               app->documentEvents->unloads == 0,
           "original TextBox remains loaded with its document");
 }
-void AttachModule(HWND window) {
+void LoadModule(HWND window) {
     if (!attach) {
         auto directory = Directory();
         wchar_t file[512]{};
@@ -180,7 +182,7 @@ void AttachModule(HWND window) {
         auto module = LoadLibraryExW((directory + file).c_str(), nullptr,
                                      LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
         winrt::check_bool(module != nullptr);
-        auto probe = reinterpret_cast<styler::AdapterProbeV1>(GetProcAddress(module, "MacdowsAdapterProbeV1"));
+        probe = reinterpret_cast<styler::AdapterProbeV1>(GetProcAddress(module, "MacdowsAdapterProbeV1"));
         attach = reinterpret_cast<styler::AdapterAttachV1>(GetProcAddress(module, "MacdowsAdapterAttachV1"));
         Check(probe && attach, "registered production module exposes both adapter entry points");
         owner = CreateWindowW(L"STATIC", L"Owned background adapter contract", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
@@ -193,6 +195,9 @@ void AttachModule(HWND window) {
                   Geometry(window) == geometry && GetWindowLongPtrW(window, GWL_STYLE) == style,
               "production probe accepts the original island without modifying it");
     }
+}
+void AttachModule(HWND window) {
+    LoadModule(window);
     Check(attach(&context) == ERROR_SUCCESS, "production module attaches through its public adapter ABI");
 }
 x::Hosting::DesktopWindowXamlSource FindTitle(HWND window) {
@@ -256,13 +261,67 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
             geometry = Geometry(target);
             style = GetWindowLongPtrW(target, GWL_STYLE);
             originalIsland = reinterpret_cast<HWND>(app->source.SiteBridge().WindowId().Value);
-            if (bootstrap)
+            if (closedSourceProbe) {
+                LoadModule(target);
+                closedContentSource = app->source;
+                auto bridge = closedContentSource.SiteBridge();
+                closedBridge = bridge;
+                app->source = nullptr; // Reentrant WM_SIZE must not use a closing source.
+                closedContentSource.Close();
+                Check(bridge.IsClosed(), "the host closes its original source before an initial probe");
+                Check(!IsWindow(originalIsland), "the closed original island HWND is gone");
+                Check(probe(&context) == ERROR_NOT_SUPPORTED,
+                      "the actual module probe safely refuses a host with no live content source");
+                Check(attach(&context) == ERROR_NOT_SUPPORTED,
+                      "the actual module attach also refuses the closed content source");
+                Check(!GetPropW(target, styler::OwnerProperty) && !GetPropW(target, styler::InlineProperty),
+                      "refused probe and attach publish no lease");
+                Check(IsWindow(target) && Geometry(target) == geometry && GetWindowLongPtrW(target, GWL_STYLE) == style,
+                      "closed-source discovery preserves the surviving host HWND style and geometry");
+                app->source = x::Hosting::DesktopWindowXamlSource();
+                app->source.Initialize({reinterpret_cast<uint64_t>(target)});
+                Check(probe(&context) == ERROR_NOT_SUPPORTED,
+                      "initial probing safely refuses a live source whose Content is not set");
+                app->source.Content(app->body);
+                app->Resize();
+                Check(!app->source.SiteBridge().IsClosed(),
+                      "the host creates a fresh live content source on the same HWND");
+                stage = 6;
+            } else if (bootstrap) {
                 StartHost(target);
-            else if (production)
+                stage = 1;
+            } else if (production) {
                 AttachModule(target);
-            else
+                stage = 1;
+            } else {
                 app->Apply();
-            stage = 1;
+                stage = 1;
+            }
+        } else if (app && stage == 6 && app->body.IsLoaded() && app->document.IsLoaded()) {
+            Check(closedContentSource && closedBridge.IsClosed(),
+                  "the host still retains the closed source while probing its replacement");
+            Check(probe(&context) == ERROR_SUCCESS,
+                  "initial probing accepts the recreated live source without attaching");
+            Check(!GetPropW(target, styler::OwnerProperty) && !GetPropW(target, styler::InlineProperty),
+                  "recreated-source probe remains read-only and publishes no lease");
+            Check(app->document.Text() == L"Original document" && app->documentEvents->loads == 2 &&
+                      app->documentEvents->unloads == 1,
+                  "the host-retained document survives its single close and reload");
+            Check(Geometry(target) == geometry && GetWindowLongPtrW(target, GWL_STYLE) == style,
+                  "recreated-source discovery preserves exact original host geometry and style");
+            auto window = w::AppWindow::GetFromWindowId({reinterpret_cast<uint64_t>(target)});
+            Check(window.Presenter().as<w::OverlappedPresenter>().HasTitleBar() &&
+                      !window.TitleBar().ExtendsContentIntoTitleBar(),
+                  "initial probing never changes the native caption");
+            Check(GetForegroundWindow() != target,
+                  "the closed-source probe contract requires no foreground activation");
+            KillTimer(nullptr, timer);
+            DestroyWindow(owner);
+            owner = nullptr;
+            closedContentSource = nullptr;
+            closedBridge = nullptr;
+            stage = 5;
+            PostMessageW(target, WM_CLOSE, 0, 0);
         } else if (app && stage == 1 && Ready(app) && production) {
             if (bootstrap) {
                 owner = reinterpret_cast<HWND>(GetPropW(target, styler::OwnerProperty));
@@ -352,7 +411,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR command, int s
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     std::cout << std::unitbuf;
     bootstrap = wcsstr(GetCommandLineW(), L"--bootstrap") != nullptr;
-    production = bootstrap || wcsstr(GetCommandLineW(), L"--production") != nullptr;
+    closedSourceProbe = wcsstr(GetCommandLineW(), L"--closed-source-probe") != nullptr;
+    production = bootstrap || closedSourceProbe || wcsstr(GetCommandLineW(), L"--production") != nullptr;
     started = GetTickCount64();
     timer = SetTimer(nullptr, 0, 80, Tick);
     if (!timer)
