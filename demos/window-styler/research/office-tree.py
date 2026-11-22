@@ -21,13 +21,11 @@ def inspect(hwnd, budget):
         modules = [m for m in reader.modules if m['name'].lower() in EXPECTED]
         if len(modules) != len(EXPECTED):
             raise ValueError('The complete Office ABI profile is required')
-        for module in modules:
-            if metadata['identity'](reader, module) != EXPECTED[module['name'].lower()]:
-                raise ValueError('Unknown Office ABI: ' + module['name'])
+        profile = metadata['select_profile']({m['name'].lower(): metadata['identity'](reader, m)
+                                             for m in modules})
         types = Metadata(reader, modules)
         ui = next(m for m in modules if m['name'].lower() == 'mso40uiwin32client.dll')
-        for rva, expected in ((0x1af790, '488b4110c3'), (0x1dc470, '488b4108c3'),
-                              (0x1dbc60, '488b4118c3'), (0x1dc4a0, '488b4120c3')):
+        for rva, expected in profile['node_accessors']:
             if reader.read(ui['base'] + rva, len(bytes.fromhex(expected))) != bytes.fromhex(expected):
                 raise ValueError('Original Node link accessor does not match the ABI')
         user = C.WinDLL('user32')
@@ -101,7 +99,8 @@ def inspect(hwnd, budget):
         user.EnumChildWindows(hwnd, callback, 0)
         if not roots:
             errors.append({'kind': 'missingRoots'})
-        return {'pid': reader.pid, 'targetCodeExecuted': False, 'layoutModified': False,
+        return {'pid': reader.pid, 'readOnlyProfile': profile['name'], 'injectionProfileEnabled': False,
+                'targetCodeExecuted': False, 'layoutModified': False,
                 'roots': roots, 'nodes': nodes, 'errors': errors, 'complete': not errors}
     finally:
         reader.close()

@@ -16,4 +16,6 @@
 
 实际打包后端以 `runtime-features.json` 和两种架构的 `adapters.ini` 为准。CI 的 `core-only` 编译包缺少本机 SDK 构建的 Qt 与正式 WinUI 3 后端，不能代替本机完整运行包。
 
+2026-11-23：当前电脑的 Office `16.0.14334.21048` 已超出本包旧版 Office profile。新版本的 Word、Excel 已在独立研究后端通过 Debug/Release 后台接管、原按钮隐藏禁用及精确撤销；真实深浅色绘制等验证仍待完成，未加入本包的默认自动接管。详情见源码中的 `verification-v45.md`。
+
 包内包含 x64/x86 的 VC++ 可再发行运行库，不含测试程序、软件库存、截图或私有诊断。源码与 GPLv3 授权见 [GitHub 仓库](https://github.com/aiboqiao6/macdowsOS-WindowChanger) 及 `LICENSE.txt`；MinHook 授权见 `third_party/minhook-LICENSE.txt`。

@@ -14,11 +14,9 @@ import uuid
 from ctypes import wintypes as W
 
 Reader = runpy.run_path(str(pathlib.Path(__file__).with_name('read-framework-objects.py')))['Reader']
-EXPECTED = {
-    'mso40uiwin32client.dll': ('2D264595-7EA8-4318-8AA1-897691F9D8EE', 2),
-    'mso98win32client.dll': ('7DA1C564-0BEE-44F1-833B-5036838211D4', 2),
-    'mso.dll': ('609D7177-47D3-4508-B59D-AB1FD4FB1624', 2),
-}
+profiles = runpy.run_path(str(pathlib.Path(__file__).with_name('office-readonly-profiles.py')))
+EXPECTED = profiles['PROFILES'][0]['modules']
+select_profile = profiles['select_profile']
 
 
 def identity(reader, module):
@@ -156,18 +154,16 @@ class Metadata:
 def inspect(hwnd, budget):
     reader = Reader(hwnd)
     try:
-        modules, identities = [], []
+        modules, identities, current_identities = [], [], {}
         for module in reader.modules:
             name = module['name'].lower()
             if name not in EXPECTED:
                 continue
             current = identity(reader, module)
-            if current != EXPECTED[name]:
-                raise ValueError('Unknown Office NetUI ABI: ' + name + ' ' + repr(current))
+            current_identities[name] = current
             modules.append(module)
             identities.append({'module': module['name'], 'codeView': current[0], 'age': current[1]})
-        if not modules:
-            raise ValueError('No verified Office NetUI implementation is loaded')
+        profile = select_profile(current_identities)
         metadata = Metadata(reader, modules)
         windows = []
         callback_type = C.WINFUNCTYPE(W.BOOL, W.HWND, C.c_ssize_t)
@@ -224,7 +220,8 @@ def inspect(hwnd, budget):
                 module = next(m for m in modules if m['name'] == info['module'])
                 schemas[key] = {'name': info['name'], 'properties': metadata.properties(
                     module['base'] + int(info['classInfoRva'], 16))}
-        return {'pid': reader.pid, 'modules': identities, 'classSchemas': list(schemas.values()),
+        return {'pid': reader.pid, 'modules': identities, 'readOnlyProfile': profile['name'],
+                'injectionProfileEnabled': False, 'classSchemas': list(schemas.values()),
                 'targetCodeExecuted': False, 'layoutModified': False, 'roots': roots,
                 'objects': list(objects.values()), 'budgetReached': bool(queue)}
     finally:

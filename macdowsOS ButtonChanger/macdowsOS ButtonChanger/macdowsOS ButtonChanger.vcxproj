@@ -275,6 +275,13 @@
     <None Include="../../demos/window-styler/verification-v42.md" />
     <None Include="../../demos/window-styler/verification-v43.md" />
     <None Include="../../demos/window-styler/verification-v44.md" />
+    <None Include="../../demos/window-styler/verification-v45.md" />
+    <None Include="../../demos/window-styler/research/office-readonly-profiles.py" />
+    <None Include="../../demos/window-styler/research/test-office-readonly-profiles.py" />
+    <None Include="../../demos/window-styler/research/test-office-21048-background.ps1" />
+    <None Include="../../demos/window-styler/research/framework-probe/office-21048-verify.h" />
+    <None Include="../../demos/window-styler/research/framework-probe/office-21048-research.cmake" />
+    <None Include="../../demos/window-styler/research/framework-probe/office-background-host.cpp" />
     <None Include="../../demos/window-styler/release-v42.md" />
     <None Include="../../demos/window-styler/test-winui3-auto.ps1" />
     <None Include="../../demos/window-styler/pe-imports.h" />

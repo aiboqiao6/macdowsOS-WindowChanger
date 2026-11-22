@@ -629,6 +629,13 @@
     <None Include="../../demos/window-styler/verification-v42.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v43.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/verification-v44.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/verification-v45.md"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/office-readonly-profiles.py"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/test-office-readonly-profiles.py"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/test-office-21048-background.ps1"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/framework-probe/office-21048-verify.h"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/framework-probe/office-21048-research.cmake"><Filter>框架研究</Filter></None>
+    <None Include="../../demos/window-styler/research/framework-probe/office-background-host.cpp"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/release-v42.md"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/test-winui3-auto.ps1"><Filter>框架研究</Filter></None>
     <None Include="../../demos/window-styler/pe-imports.h"><Filter>框架研究</Filter></None>

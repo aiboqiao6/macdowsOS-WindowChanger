@@ -29,6 +29,8 @@ jobs:
       - name: Run deterministic contracts
         shell: pwsh
         run: |
+          python ./demos/window-styler/research/test-office-readonly-profiles.py
+          if ($LASTEXITCODE -ne 0) { throw 'Office read-only profile contracts failed' }
           . ./demos/window-styler/development-tools.ps1
           $cmakeTool=Get-DevelopmentTool cmake
           $ctestTool=Join-Path (Split-Path $cmakeTool) ctest.exe
